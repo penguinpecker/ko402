@@ -91,7 +91,7 @@ export default function Game() {
       if(shakeRef.current>0){ctx.save();ctx.translate((Math.random()-0.5)*shakeRef.current*2,(Math.random()-0.5)*shakeRef.current*2);shakeRef.current-=0.5;}
       drawBackground(ctx,canvas.width,canvas.height);
       const gs=gameStateRef.current;
-      if(gs==='VS'||gs==='FIGHT_INTRO'||gs==='FIGHT'||gs==='KO'){drawFighter(ctx,p1Ref.current,canvas.height,1);drawFighter(ctx,p2Ref.current,canvas.height,1);const he=hitEffectRef.current;if(he.timer>0){drawHitEffect(ctx,he.x,he.y,he.timer);he.timer-=0.5;}}
+      if(gs==='VS'||gs==='FIGHT_INTRO'||gs==='FIGHT'||gs==='KO'){drawFighter(ctx,p1Ref.current,canvas.width,canvas.height,1);drawFighter(ctx,p2Ref.current,canvas.width,canvas.height,1);const he=hitEffectRef.current;if(he.timer>0){drawHitEffect(ctx,he.x,he.y,he.timer);he.timer-=0.5;}}
       if(shakeRef.current>0) ctx.restore();
       animRef.current=requestAnimationFrame(render);
     }
@@ -133,7 +133,7 @@ export default function Game() {
     let animKey=move.animKey;if(animKey==='attack2'&&!FIGHTERS[attacker.char!]?.sprites.attack2)animKey='attack1';
     if(moveId==='block'){attacker.blocking=true;setTimeout(()=>{attacker.blocking=false;},1400);}
     else{attacker.anim=animKey;attacker.frame=0;attacker.frameTimer=0;
-      setTimeout(()=>{if(defender.blocking)dmg=Math.floor(dmg*(1-GAME_CONFIG.blockDamageReduction));defender.hp=Math.max(0,defender.hp-dmg);if(isP1){setTotalP1Dmg(d=>d+dmg);}else{setTotalP2Dmg(d=>d+dmg);}if(dmg>0&&defender.hp>0){defender.anim='takehit';defender.frame=0;defender.frameTimer=0;}shakeRef.current=Math.min(dmg*0.4,12);const canvas=canvasRef.current;if(canvas)hitEffectRef.current={x:defender.x,y:canvas.height*GAME_CONFIG.groundYPercent-100,timer:15};setP1Hp(p1Ref.current.hp);setP2Hp(p2Ref.current.hp);setP1Balance(p1Ref.current.balance);setP2Balance(p2Ref.current.balance);},300);}
+      setTimeout(()=>{if(defender.blocking)dmg=Math.floor(dmg*(1-GAME_CONFIG.blockDamageReduction));defender.hp=Math.max(0,defender.hp-dmg);if(isP1){setTotalP1Dmg(d=>d+dmg);}else{setTotalP2Dmg(d=>d+dmg);}if(dmg>0&&defender.hp>0){defender.anim='takehit';defender.frame=0;defender.frameTimer=0;}shakeRef.current=Math.min(dmg*0.4,12);const canvas=canvasRef.current;if(canvas){const defX=defender.facing===1?canvas.width*GAME_CONFIG.p1StartXPercent:canvas.width*GAME_CONFIG.p2StartXPercent;hitEffectRef.current={x:defX,y:canvas.height*GAME_CONFIG.groundYPercent-100,timer:15};}setP1Hp(p1Ref.current.hp);setP2Hp(p2Ref.current.hp);setP1Balance(p1Ref.current.balance);setP2Balance(p2Ref.current.balance);},300);}
     setTxLog(prev=>[{id:Date.now().toString()+Math.random(),agent:agentName,move:move.name,cost:move.cost,dmg,hash:mockTxHash(),ledger:mockLedger(),timestamp:Date.now()},...prev].slice(0,25));
     setP1Balance(p1Ref.current.balance);setP2Balance(p2Ref.current.balance);
   },[]);

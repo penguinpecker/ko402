@@ -73,6 +73,7 @@ export function drawBackground(ctx: CanvasRenderingContext2D, w: number, h: numb
 export function drawFighter(
   ctx: CanvasRenderingContext2D,
   player: PlayerState,
+  canvasW: number,
   canvasH: number,
   deltaFrames: number,
 ) {
@@ -89,6 +90,11 @@ export function drawFighter(
   const dw = frameW * scale;
   const dh = frameH * scale;
   const groundY = canvasH * GAME_CONFIG.groundYPercent;
+
+  // Dynamic x position based on current canvas width
+  const xPos = player.facing === 1
+    ? canvasW * GAME_CONFIG.p1StartXPercent
+    : canvasW * GAME_CONFIG.p2StartXPercent;
 
   // Animate
   player.frameTimer += deltaFrames;
@@ -108,7 +114,7 @@ export function drawFighter(
   // Shadow
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.beginPath();
-  ctx.ellipse(player.x, groundY, dw * 0.22, 5, 0, 0, Math.PI * 2);
+  ctx.ellipse(xPos, groundY, dw * 0.22, 5, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Hit flash
@@ -117,7 +123,7 @@ export function drawFighter(
   }
 
   // Draw sprite - use offscreen canvas for P2 flip (guaranteed to work)
-  const drawX = player.x - dw / 2;
+  const drawX = xPos - dw / 2;
   const drawY = groundY - dh + offsetY;
 
   // Determine if we need to flip the sprite
@@ -147,7 +153,7 @@ export function drawFighter(
     ctx.strokeStyle = `rgba(0,255,136,${shieldAlpha})`;
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(player.x, groundY - dh * 0.5, dw * 0.35, 0, Math.PI * 2);
+    ctx.arc(xPos, groundY - dh * 0.5, dw * 0.35, 0, Math.PI * 2);
     ctx.stroke();
     ctx.fillStyle = `rgba(0,255,136,${shieldAlpha * 0.15})`;
     ctx.fill();
