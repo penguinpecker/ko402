@@ -1,25 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { releasePot } from '../../../lib/stellar';
 
+/**
+ * POST /api/game/settle
+ * 
+ * Releases the prize pot from the game server escrow wallet
+ * to the winning agent's wallet.
+ * 
+ * Body: { winnerWallet, potAmount }
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { winnerAgentNum, potAmount } = body;
+    const { winnerWallet, potAmount } = body;
 
-    if (![1, 2].includes(winnerAgentNum)) {
-      return NextResponse.json({ error: 'winnerAgentNum must be 1 or 2' }, { status: 400 });
-    }
-
-    const winnerPublic = winnerAgentNum === 1
-      ? process.env.AGENT1_STELLAR_PUBLIC
-      : process.env.AGENT2_STELLAR_PUBLIC;
-
-    if (!winnerPublic) {
-      return NextResponse.json({ error: 'Winner public key not configured' }, { status: 500 });
+    if (!winnerWallet) {
+      return NextResponse.json({ error: 'winnerWallet required' }, { status: 400 });
     }
 
     const amount = potAmount || '0.2000000';
-    const result = await releasePot(winnerPublic, amount);
+    const result = await releasePot(winnerWallet, amount);
 
     if (!result.success) {
       return NextResponse.json({
@@ -32,8 +32,9 @@ export async function POST(request: NextRequest) {
       success: true,
       settlement: {
         hash: result.hash,
+        ledger: result.ledger,
         from: process.env.SERVER_STELLAR_PUBLIC,
-        to: winnerPublic,
+        to: winnerWallet,
         amount,
         asset: 'USDC',
         network: 'stellar:testnet',
