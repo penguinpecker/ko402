@@ -233,7 +233,7 @@ export default function Game() {
   return (
     <div style={{ position:'relative', width:'100vw', height:'100vh', overflow:'hidden', background:'#05050f' }}>
       <canvas ref={canvasRef} style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', imageRendering:'pixelated' }} />
-      {spritesLoaded && <NetworkBadge />}
+      {spritesLoaded && gameState === 'HOME' && <NetworkBadge />}
 
       {/* LOADING */}
       {!spritesLoaded && (
@@ -543,8 +543,6 @@ export default function Game() {
         <div style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', zIndex:10, textAlign:'center', pointerEvents:'none' }}>
           <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:8, color:'rgba(255,215,0,0.5)', letterSpacing:3 }}>PRIZE POT</div>
           <div style={{ fontSize:26, fontWeight:900, color:'#FFD700', fontFamily:'Orbitron,monospace', textShadow:'0 0 20px rgba(255,215,0,0.5)' }}>{pot.toFixed(3)} USDC</div>
-          <div style={{ fontSize:7, color:'#444', fontFamily:'monospace', marginTop:2 }}>Escrow: {MOCK.escrowContract.slice(0,10)}...</div>
-          <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:8, color:'#555', marginTop:2 }}>ROUND {roundNum}</div>
         </div>
         <div style={{ position:'absolute', bottom:20, left:'50%', transform:'translateX(-50%)', display:'flex', gap:14, zIndex:10, pointerEvents:'none' }}>
           {Object.values(MOVES).map(m => (
