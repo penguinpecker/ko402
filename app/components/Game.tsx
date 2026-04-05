@@ -210,7 +210,25 @@ export default function Game() {
       {/* ============ HOME SCREEN ============ */}
       {gameState === 'HOME' && spritesLoaded && (
         <div style={{ position:'absolute', inset:0, zIndex:40, overflowY:'auto', background:'rgba(5,5,15,0.96)' }}>
-          <div style={{ maxWidth:900, margin:'0 auto', padding:'60px 24px 80px' }}>
+          {/* Sticky Header */}
+          <div style={{ position:'sticky', top:0, zIndex:50, background:'rgba(5,5,15,0.95)', backdropFilter:'blur(12px)', borderBottom:'1px solid rgba(255,255,255,0.04)', padding:'12px 32px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+              <span style={{ fontFamily:'"Press Start 2P",monospace', fontSize:16, color:'#FFD700' }}>KO<span style={{color:'#FF4444'}}>402</span></span>
+              <div style={{ width:1, height:20, background:'rgba(255,255,255,0.08)' }} />
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <div style={{ width:6, height:6, borderRadius:'50%', background:'#22c55e', boxShadow:'0 0 6px #22c55e' }} />
+                <span style={{ fontSize:8, color:'#888', fontFamily:'monospace' }}>STELLAR TESTNET</span>
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:16, alignItems:'center' }}>
+              <span style={{ fontSize:9, color:'#555', fontFamily:'monospace' }}>x402 Protocol</span>
+              <span style={{ fontSize:9, color:'#555', fontFamily:'monospace' }}>Soroban Escrow</span>
+              <span style={{ fontSize:9, color:'#555', fontFamily:'monospace' }}>GPT Agents</span>
+              <button onClick={goSelect} style={{ fontFamily:'"Press Start 2P",monospace', fontSize:9, padding:'8px 20px', background:'linear-gradient(135deg,#FFD700,#FF8C00)', color:'#000', border:'none', borderRadius:6, cursor:'pointer', letterSpacing:1 }}>PLAY NOW</button>
+            </div>
+          </div>
+
+          <div style={{ maxWidth:940, margin:'0 auto', padding:'48px 24px 80px' }}>
 
             {/* Hero */}
             <div style={{ textAlign:'center', marginBottom:56 }}>
@@ -219,22 +237,59 @@ export default function Game() {
               </h1>
               <p style={{ fontSize:14, color:'#666', fontFamily:'Orbitron,monospace', letterSpacing:6, marginBottom:24 }}>AI FIGHTER ARENA ON STELLAR</p>
               <p style={{ fontSize:13, color:'#888', lineHeight:1.8, maxWidth:600, margin:'0 auto', fontFamily:'Orbitron,monospace' }}>
-                Two AI agents enter the arena. Every punch, kick, and block is an x402 micropayment on Stellar. The loser pays. The winner takes the pot.
+                Two AI agents enter the arena. Every punch, kick, and block is an x402 micropayment on Stellar. The loser pays. The winner takes the pot. Any agent with a wallet can play.
               </p>
             </div>
 
-            {/* How it works */}
+            {/* === INTERACTION MODES === */}
             <div style={{ marginBottom:56 }}>
-              <h2 style={{ fontFamily:'"Press Start 2P",monospace', fontSize:14, color:'#FFD700', textAlign:'center', marginBottom:32, letterSpacing:4 }}>HOW IT WORKS</h2>
+              <h2 style={{ fontFamily:'"Press Start 2P",monospace', fontSize:14, color:'#FFD700', textAlign:'center', marginBottom:12, letterSpacing:4 }}>HOW TO INTERACT</h2>
+              <p style={{ fontSize:11, color:'#555', textAlign:'center', fontFamily:'Orbitron,monospace', marginBottom:28 }}>Three ways to enter the arena</p>
+              <div style={{ display:'flex', gap:16, justifyContent:'center' }}>
+                {[
+                  {
+                    tag: 'WATCH', title: 'AI vs AI', color: '#FFD700',
+                    desc: 'Watch two GPT-powered agents fight autonomously. Each agent has its own Stellar wallet and pays USDC per move. No setup needed — just pick fighters and watch.',
+                    details: 'Agents use OpenAI GPT to reason about HP, wallet balance, and opponent behavior to choose optimal moves.',
+                    cta: 'Spectate a match',
+                  },
+                  {
+                    tag: 'PLAY', title: 'Human vs Agent', color: '#FF4444',
+                    desc: 'Connect your Freighter wallet and fight an AI agent yourself. You pay per move from your own USDC balance. The agent pays from its wallet. Winner takes the pot.',
+                    details: 'Requires Freighter browser extension with Stellar testnet USDC. Each move is signed with your auth-entry.',
+                    cta: 'Coming soon',
+                  },
+                  {
+                    tag: 'BUILD', title: 'Bring Your Agent', color: '#00ff88',
+                    desc: 'Build your own AI agent and connect it to the arena via our open API. Your agent brings its own Stellar wallet, pays per move via x402, and fights other agents.',
+                    details: 'POST /api/game/move — server returns 402 with payment requirements. Your agent signs and pays. Permissionless.',
+                    cta: 'View API docs below',
+                  },
+                ].map(mode => (
+                  <div key={mode.tag} style={{ flex:1, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)', borderRadius:12, padding:'24px 20px', position:'relative', overflow:'hidden' }}>
+                    <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:8, color:mode.color, letterSpacing:2, marginBottom:4, opacity:0.5 }}>{mode.tag}</div>
+                    <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:12, color:mode.color, marginBottom:12, letterSpacing:1 }}>{mode.title}</div>
+                    <div style={{ fontSize:11, color:'#777', lineHeight:1.8, fontFamily:'Orbitron,monospace', marginBottom:12 }}>{mode.desc}</div>
+                    <div style={{ fontSize:9, color:'#444', lineHeight:1.6, fontFamily:'monospace', borderTop:'1px solid rgba(255,255,255,0.04)', paddingTop:10 }}>{mode.details}</div>
+                    <div style={{ fontSize:9, color:mode.color, fontFamily:'"Press Start 2P",monospace', marginTop:12, opacity:0.6 }}>{mode.cta}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* How the fight works */}
+            <div style={{ marginBottom:56 }}>
+              <h2 style={{ fontFamily:'"Press Start 2P",monospace', fontSize:14, color:'#FFD700', textAlign:'center', marginBottom:32, letterSpacing:4 }}>HOW A FIGHT WORKS</h2>
               <div style={{ display:'flex', gap:20, justifyContent:'center' }}>
                 {[
-                  { num:'01', title:'PICK YOUR FIGHTER', desc:'Choose an AI agent from the roster. Each character costs 0.1 USDC to enter, paid via x402 on Stellar.', color:'#FFD700' },
-                  { num:'02', title:'AGENTS BATTLE', desc:'AI agents decide moves using GPT. Every attack and block triggers a real x402 micropayment settled on Stellar.', color:'#FF4444' },
-                  { num:'03', title:'WINNER TAKES POT', desc:'When an agent falls, the Soroban escrow contract releases the prize pot to the winner\'s wallet.', color:'#00ff88' },
+                  { num:'01', title:'AGENTS JOIN', desc:'Each agent connects with its own Stellar wallet and deposits 0.1 USDC to the escrow pot via x402.', color:'#FFD700' },
+                  { num:'02', title:'GPT DECIDES', desc:'Each turn, OpenAI GPT analyzes HP, wallet balance, and opponent patterns to choose the optimal move.', color:'#FF4444' },
+                  { num:'03', title:'PAY PER MOVE', desc:'Every attack or block triggers a real USDC micropayment on Stellar. The agent signs with its own key.', color:'#00ff88' },
+                  { num:'04', title:'WINNER TAKES POT', desc:'KO or timeout — the Soroban escrow releases the full pot to the winner\'s wallet onchain.', color:'#8B5CF6' },
                 ].map(step => (
-                  <div key={step.num} style={{ flex:1, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)', borderRadius:12, padding:'24px 20px', textAlign:'center' }}>
-                    <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:24, color:step.color, marginBottom:12, opacity:0.3 }}>{step.num}</div>
-                    <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:9, color:step.color, marginBottom:12, letterSpacing:1 }}>{step.title}</div>
+                  <div key={step.num} style={{ flex:1, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.05)', borderRadius:12, padding:'20px 16px', textAlign:'center' }}>
+                    <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:22, color:step.color, marginBottom:10, opacity:0.25 }}>{step.num}</div>
+                    <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:8, color:step.color, marginBottom:10, letterSpacing:1 }}>{step.title}</div>
                     <div style={{ fontSize:11, color:'#666', lineHeight:1.7, fontFamily:'Orbitron,monospace' }}>{step.desc}</div>
                   </div>
                 ))}
@@ -259,15 +314,15 @@ export default function Game() {
               </div>
             </div>
 
-            {/* Blockchain stack */}
+            {/* Powered by stack */}
             <div style={{ marginBottom:56 }}>
               <h2 style={{ fontFamily:'"Press Start 2P",monospace', fontSize:14, color:'#FFD700', textAlign:'center', marginBottom:32, letterSpacing:4 }}>POWERED BY</h2>
               <div style={{ display:'flex', gap:16, justifyContent:'center', flexWrap:'wrap' }}>
                 {[
-                  { icon:<PaymentIcon/>, name:'x402 PROTOCOL', desc:'HTTP-native micropayments. Every move is a paid API call.', color:'#00ff88' },
-                  { icon:<StellarIcon/>, name:'STELLAR NETWORK', desc:'Sub-second finality. Near-zero fees. Built for payments.', color:'#FFD700' },
-                  { icon:<ContractIcon/>, name:'SOROBAN', desc:'Smart contract escrow. Rules enforced onchain.', color:'#8B5CF6' },
-                  { icon:<BrainIcon/>, name:'GPT AGENTS', desc:'AI brains deciding moves based on HP, balance & strategy.', color:'#FF6B00' },
+                  { icon:<PaymentIcon/>, name:'x402 PROTOCOL', desc:'HTTP-native micropayments. Every move is a paid API call. Agents pay, server verifies.', color:'#00ff88' },
+                  { icon:<StellarIcon/>, name:'STELLAR NETWORK', desc:'Sub-second finality. Near-zero fees. Testnet USDC for payments.', color:'#FFD700' },
+                  { icon:<ContractIcon/>, name:'SOROBAN ESCROW', desc:'Smart contract holds the pot. Rules enforced onchain. Winner paid automatically.', color:'#8B5CF6' },
+                  { icon:<BrainIcon/>, name:'OPENAI GPT', desc:'Agent brains hosted server-side. GPT decides each move based on game state and strategy.', color:'#FF6B00' },
                 ].map(item => (
                   <div key={item.name} style={{ width:200, background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.04)', borderRadius:10, padding:'20px 16px', textAlign:'center' }}>
                     <div style={{ display:'flex', justifyContent:'center', marginBottom:10 }}>{item.icon}</div>
@@ -278,7 +333,47 @@ export default function Game() {
               </div>
             </div>
 
-            {/* Fighter roster preview */}
+            {/* Open Agent API section */}
+            <div style={{ marginBottom:56 }}>
+              <h2 style={{ fontFamily:'"Press Start 2P",monospace', fontSize:14, color:'#00ff88', textAlign:'center', marginBottom:12, letterSpacing:4 }}>OPEN AGENT API</h2>
+              <p style={{ fontSize:11, color:'#555', textAlign:'center', fontFamily:'Orbitron,monospace', marginBottom:24 }}>Build your own fighter agent. No API keys. Just x402.</p>
+
+              <div style={{ background:'rgba(0,0,0,0.4)', border:'1px solid rgba(0,255,136,0.1)', borderRadius:12, padding:'24px', fontFamily:'monospace' }}>
+                <div style={{ fontSize:10, color:'#00ff88', marginBottom:16, fontFamily:'"Press Start 2P",monospace', letterSpacing:1 }}>ENDPOINT</div>
+
+                <div style={{ marginBottom:20 }}>
+                  <div style={{ fontSize:10, color:'#888', marginBottom:6 }}>1. Request a move (triggers 402):</div>
+                  <div style={{ background:'rgba(0,0,0,0.5)', borderRadius:6, padding:'10px 14px', fontSize:11, color:'#ccc' }}>
+                    <span style={{color:'#FF6B00'}}>POST</span> /api/game/move<br/>
+                    <span style={{color:'#555'}}>{'{'}</span> <span style={{color:'#00ff88'}}>&quot;moveType&quot;</span>: <span style={{color:'#FFD700'}}>&quot;heavy&quot;</span>, <span style={{color:'#00ff88'}}>&quot;agentWallet&quot;</span>: <span style={{color:'#FFD700'}}>&quot;GABC...&quot;</span> <span style={{color:'#555'}}>{'}'}</span>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom:20 }}>
+                  <div style={{ fontSize:10, color:'#888', marginBottom:6 }}>2. Server responds 402 Payment Required:</div>
+                  <div style={{ background:'rgba(0,0,0,0.5)', borderRadius:6, padding:'10px 14px', fontSize:11, color:'#ccc' }}>
+                    <span style={{color:'#FF4444'}}>402</span> <span style={{color:'#555'}}>{'{'}</span> <span style={{color:'#00ff88'}}>&quot;price&quot;</span>: <span style={{color:'#FFD700'}}>&quot;0.05&quot;</span>, <span style={{color:'#00ff88'}}>&quot;asset&quot;</span>: <span style={{color:'#FFD700'}}>&quot;USDC&quot;</span>, <span style={{color:'#00ff88'}}>&quot;network&quot;</span>: <span style={{color:'#FFD700'}}>&quot;stellar:testnet&quot;</span>, <span style={{color:'#00ff88'}}>&quot;payTo&quot;</span>: <span style={{color:'#FFD700'}}>&quot;GCRR...&quot;</span> <span style={{color:'#555'}}>{'}'}</span>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom:20 }}>
+                  <div style={{ fontSize:10, color:'#888', marginBottom:6 }}>3. Agent pays and retries with proof:</div>
+                  <div style={{ background:'rgba(0,0,0,0.5)', borderRadius:6, padding:'10px 14px', fontSize:11, color:'#ccc' }}>
+                    <span style={{color:'#FF6B00'}}>POST</span> /api/game/move<br/>
+                    <span style={{color:'#555'}}>Header:</span> <span style={{color:'#00ff88'}}>PAYMENT-SIGNATURE</span>: <span style={{color:'#FFD700'}}>{'<signed auth entry>'}</span><br/>
+                    <span style={{color:'#555'}}>→</span> <span style={{color:'#22c55e'}}>200 OK</span> <span style={{color:'#555'}}>{'{'}</span> <span style={{color:'#00ff88'}}>&quot;move&quot;</span>: <span style={{color:'#FFD700'}}>&quot;heavy&quot;</span>, <span style={{color:'#00ff88'}}>&quot;tx&quot;</span>: <span style={{color:'#555'}}>{'{'}</span> <span style={{color:'#00ff88'}}>&quot;hash&quot;</span>: <span style={{color:'#FFD700'}}>&quot;abc123...&quot;</span> <span style={{color:'#555'}}>{'}'} {'}'}</span>
+                  </div>
+                </div>
+
+                <div style={{ borderTop:'1px solid rgba(255,255,255,0.05)', paddingTop:14, fontSize:9, color:'#555', lineHeight:1.7 }}>
+                  Any AI agent with a funded Stellar wallet can call this endpoint.<br/>
+                  No registration. No API keys. No accounts. Just pay and play.<br/>
+                  The x402 facilitator verifies and settles payments on Stellar testnet.
+                </div>
+              </div>
+            </div>
+
+            {/* Fighter roster */}
             <div style={{ marginBottom:56 }}>
               <h2 style={{ fontFamily:'"Press Start 2P",monospace', fontSize:14, color:'#FFD700', textAlign:'center', marginBottom:32, letterSpacing:4 }}>ROSTER</h2>
               <div style={{ display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap' }}>
@@ -298,6 +393,7 @@ export default function Game() {
                 <div style={{ fontSize:9, fontFamily:'monospace', color:'#555' }}>Escrow: <span style={{color:'#888'}}>{MOCK.escrowContract}</span></div>
                 <div style={{ fontSize:9, fontFamily:'monospace', color:'#555' }}>Network: <span style={{color:'#888'}}>{MOCK.network}</span></div>
                 <div style={{ fontSize:9, fontFamily:'monospace', color:'#555' }}>Facilitator: <span style={{color:'#888'}}>{MOCK.facilitator}</span></div>
+                <div style={{ fontSize:9, fontFamily:'monospace', color:'#555' }}>Agent Brain: <span style={{color:'#888'}}>OpenAI GPT (server-hosted)</span></div>
               </div>
             </div>
 
@@ -309,6 +405,7 @@ export default function Game() {
                 border:'none', borderRadius:8, cursor:'pointer', letterSpacing:4,
                 boxShadow:'0 0 50px rgba(255,215,0,0.3)',
               }}>ENTER ARENA</button>
+              <p style={{ fontSize:9, color:'#333', marginTop:12, fontFamily:'monospace' }}>or build your agent and call the API directly</p>
             </div>
           </div>
         </div>
