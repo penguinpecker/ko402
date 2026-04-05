@@ -159,3 +159,36 @@ export async function apiFetchBalances(): Promise<{
     return null;
   }
 }
+
+/**
+ * Ask GPT to decide an agent's next move.
+ * Always calls GPT (even in mock payment mode) — the brain is always real.
+ */
+export async function apiGetAgentMove(context: {
+  myHp: number;
+  opponentHp: number;
+  myBalance: number;
+  opponentBalance: number;
+  myChar: string;
+  opponentChar: string;
+  roundNum: number;
+  timeLeft: number;
+  lastOpponentMove: string | null;
+  myLastMove: string | null;
+}): Promise<{ move: 'light' | 'heavy' | 'block'; reasoning?: string }> {
+  try {
+    const res = await fetch('/api/game/think', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(context),
+    });
+    const data = await res.json();
+    if (data.move) {
+      return { move: data.move, reasoning: data.reasoning };
+    }
+    return { move: 'light' };
+  } catch {
+    // Fallback if API fails
+    return { move: 'light' };
+  }
+}

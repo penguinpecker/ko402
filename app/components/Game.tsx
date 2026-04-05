@@ -7,6 +7,7 @@ import {
 } from '../lib/gameConfig';
 import { loadAllSprites, getSpriteImage } from '../lib/spriteLoader';
 import { drawBackground, drawFighter, drawHitEffect } from '../lib/renderer';
+import { apiGetAgentMove } from '../lib/gameAPI';
 
 const MOCK = {
   escrowContract: 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2TOZQIP3',
@@ -71,6 +72,9 @@ export default function Game() {
   const [totalP2Spent, setTotalP2Spent] = useState(0);
   const [totalP1Dmg, setTotalP1Dmg] = useState(0);
   const [totalP2Dmg, setTotalP2Dmg] = useState(0);
+  const lastP1MoveRef = useRef<string | null>(null);
+  const lastP2MoveRef = useRef<string | null>(null);
+  const fightTimerRef = useRef(60);
 
   useEffect(() => { loadAllSprites().then(() => setSpritesLoaded(true)); }, []);
   const startMusic = useCallback(() => { if(musicStarted)return; const a=new Audio('/audio/fight-music.wav'); a.loop=true; a.volume=0.3; a.play().catch(()=>{}); audioRef.current=a; setMusicStarted(true); }, [musicStarted]);
@@ -95,9 +99,34 @@ export default function Game() {
     return()=>{cancelAnimationFrame(animRef.current);window.removeEventListener('resize',resize);};
   }, [spritesLoaded]);
 
-  const chooseMove=useCallback((a:PlayerState,d:PlayerState)=>{const r=Math.random();if(a.balance<0.01)return'block';if(d.anim==='attack1'||d.anim==='attack2'){if(r<0.35)return'block';}if(a.hp/a.maxHp<0.25&&a.balance>=0.05&&r<0.6)return'heavy';if(a.balance<0.05)return r<0.7?'light':'block';if(r<0.45)return'light';if(r<0.75)return'heavy';return'block';},[]);
+  // GPT Agent Brain — async call to /api/game/think
+  const chooseMove = useCallback(async (
+    attacker: PlayerState, defender: PlayerState,
+    isP1: boolean, roundNum: number,
+  ): Promise<'light' | 'heavy' | 'block'> => {
+    try {
+      const result = await apiGetAgentMove({
+        myHp: attacker.hp,
+        opponentHp: defender.hp,
+        myBalance: attacker.balance,
+        opponentBalance: defender.balance,
+        myChar: attacker.char || 'unknown',
+        opponentChar: defender.char || 'unknown',
+        roundNum,
+        timeLeft: fightTimerRef.current,
+        lastOpponentMove: isP1 ? lastP2MoveRef.current : lastP1MoveRef.current,
+        myLastMove: isP1 ? lastP1MoveRef.current : lastP2MoveRef.current,
+      });
+      return result.move;
+    } catch {
+      return 'light'; // fallback
+    }
+  }, []);
 
   const executeMove=useCallback((attacker:PlayerState,defender:PlayerState,moveId:string,agentName:string,isP1:boolean)=>{
+    // Track last moves
+    if (isP1) lastP1MoveRef.current = moveId;
+    else lastP2MoveRef.current = moveId;
     const move=MOVES[moveId];let dmg=moveId!=='block'?move.minDmg+Math.floor(Math.random()*(move.maxDmg-move.minDmg+1)):0;
     attacker.balance=Math.max(0,+(attacker.balance-move.cost).toFixed(4));
     if(isP1){setTotalP1Spent(p=>+(p+move.cost).toFixed(4));}else{setTotalP2Spent(p=>+(p+move.cost).toFixed(4));}
@@ -111,18 +140,27 @@ export default function Game() {
 
   const endByTimeout=useCallback(()=>{const p1=p1Ref.current,p2=p2Ref.current;const w=p1.hp>=p2.hp?FIGHTERS[p1.char!]?.name||'P1':FIGHTERS[p2.char!]?.name||'P2';gameStateRef.current='KO';setGameState('KO');setWinner(w);if(timerRef.current)clearInterval(timerRef.current);},[]);
 
-  const runTurn=useCallback(()=>{
+  const runTurn=useCallback(async ()=>{
     if(gameStateRef.current!=='FIGHT'||turnLockRef.current)return;turnLockRef.current=true;
-    const p1=p1Ref.current,p2=p2Ref.current;const p1Move=chooseMove(p1,p2),p2Move=chooseMove(p2,p1);setRoundNum(r=>r+1);
+    const p1=p1Ref.current,p2=p2Ref.current;
+    const curRound = roundNum;
+    setRoundNum(r=>r+1);
+
+    // Both agents think simultaneously via GPT
+    const [p1Move, p2Move] = await Promise.all([
+      chooseMove(p1, p2, true, curRound),
+      chooseMove(p2, p1, false, curRound),
+    ]);
+
     executeMove(p1,p2,p1Move,FIGHTERS[p1.char!]?.name||'P1',true);
     setTimeout(()=>{if(p2.hp<=0){p2.anim='death';p2.frame=0;p2.frameTimer=0;setTimeout(()=>{gameStateRef.current='KO';setGameState('KO');setWinner(FIGHTERS[p1.char!]?.name||'P1');if(timerRef.current)clearInterval(timerRef.current);},1200);turnLockRef.current=false;return;}
       executeMove(p2,p1,p2Move,FIGHTERS[p2.char!]?.name||'P2',false);
       setTimeout(()=>{if(p1.hp<=0){p1.anim='death';p1.frame=0;p1.frameTimer=0;setTimeout(()=>{gameStateRef.current='KO';setGameState('KO');setWinner(FIGHTERS[p2.char!]?.name||'P2');if(timerRef.current)clearInterval(timerRef.current);},1200);turnLockRef.current=false;return;}turnLockRef.current=false;setTimeout(runTurn,GAME_CONFIG.turnDelayMs);},700);},700);
-  },[chooseMove,executeMove,endByTimeout]);
+  },[chooseMove,executeMove,endByTimeout,roundNum]);
 
-  const initFighters=useCallback(()=>{const canvas=canvasRef.current;if(!canvas)return;const p1=p1Ref.current,p2=p2Ref.current;p1.char=selectedP1;p2.char=selectedP2;p1.hp=GAME_CONFIG.maxHp;p2.hp=GAME_CONFIG.maxHp;p1.balance=GAME_CONFIG.startBalance;p2.balance=GAME_CONFIG.startBalance;p1.anim='idle';p2.anim='idle';p1.frame=0;p2.frame=0;p1.x=canvas.width*GAME_CONFIG.p1StartXPercent;p2.x=canvas.width*GAME_CONFIG.p2StartXPercent;p1.facing=1;p2.facing=-1;p1.blocking=false;p2.blocking=false;p1.isDead=false;p2.isDead=false;turnLockRef.current=false;setP1Hp(GAME_CONFIG.maxHp);setP2Hp(GAME_CONFIG.maxHp);setP1Balance(GAME_CONFIG.startBalance);setP2Balance(GAME_CONFIG.startBalance);setTxLog([]);setRoundNum(0);setFightTimer(60);setTotalP1Spent(0);setTotalP2Spent(0);setTotalP1Dmg(0);setTotalP2Dmg(0);},[selectedP1,selectedP2]);
+  const initFighters=useCallback(()=>{const canvas=canvasRef.current;if(!canvas)return;const p1=p1Ref.current,p2=p2Ref.current;p1.char=selectedP1;p2.char=selectedP2;p1.hp=GAME_CONFIG.maxHp;p2.hp=GAME_CONFIG.maxHp;p1.balance=GAME_CONFIG.startBalance;p2.balance=GAME_CONFIG.startBalance;p1.anim='idle';p2.anim='idle';p1.frame=0;p2.frame=0;p1.x=canvas.width*GAME_CONFIG.p1StartXPercent;p2.x=canvas.width*GAME_CONFIG.p2StartXPercent;p1.facing=1;p2.facing=-1;p1.blocking=false;p2.blocking=false;p1.isDead=false;p2.isDead=false;turnLockRef.current=false;lastP1MoveRef.current=null;lastP2MoveRef.current=null;fightTimerRef.current=60;setP1Hp(GAME_CONFIG.maxHp);setP2Hp(GAME_CONFIG.maxHp);setP1Balance(GAME_CONFIG.startBalance);setP2Balance(GAME_CONFIG.startBalance);setTxLog([]);setRoundNum(0);setFightTimer(60);setTotalP1Spent(0);setTotalP2Spent(0);setTotalP1Dmg(0);setTotalP2Dmg(0);},[selectedP1,selectedP2]);
 
-  const startFight=useCallback(()=>{if(!selectedP1||!selectedP2)return;startMusic();initFighters();gameStateRef.current='VS';setGameState('VS');setVsTimer(0);let count=0;const vi=setInterval(()=>{count++;setVsTimer(count);if(count>=30){clearInterval(vi);gameStateRef.current='FIGHT_INTRO';setGameState('FIGHT_INTRO');setFightIntroText('ROUND 1');setTimeout(()=>{setFightIntroText('FIGHT!');setTimeout(()=>{gameStateRef.current='FIGHT';setGameState('FIGHT');timerRef.current=setInterval(()=>{setFightTimer(t=>{if(t<=1){endByTimeout();return 0;}return t-1;});},1000);setTimeout(runTurn,600);},800);},1000);}},100);},[selectedP1,selectedP2,runTurn,startMusic,initFighters,endByTimeout]);
+  const startFight=useCallback(()=>{if(!selectedP1||!selectedP2)return;startMusic();initFighters();gameStateRef.current='VS';setGameState('VS');setVsTimer(0);let count=0;const vi=setInterval(()=>{count++;setVsTimer(count);if(count>=30){clearInterval(vi);gameStateRef.current='FIGHT_INTRO';setGameState('FIGHT_INTRO');setFightIntroText('ROUND 1');setTimeout(()=>{setFightIntroText('FIGHT!');setTimeout(()=>{gameStateRef.current='FIGHT';setGameState('FIGHT');timerRef.current=setInterval(()=>{setFightTimer(t=>{const next=t-1;fightTimerRef.current=next;if(next<=0){endByTimeout();return 0;}return next;});},1000);setTimeout(runTurn,600);},800);},1000);}},100);},[selectedP1,selectedP2,runTurn,startMusic,initFighters,endByTimeout]);
 
   const goHome=useCallback(()=>{gameStateRef.current='HOME';setGameState('HOME');setSelectedP1(null);setSelectedP2(null);setWinner('');p1Ref.current=createPlayer(1);p2Ref.current=createPlayer(-1);if(timerRef.current)clearInterval(timerRef.current);},[]);
   const goSelect=useCallback(()=>{gameStateRef.current='SELECT';setGameState('SELECT');},[]);
