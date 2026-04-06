@@ -165,7 +165,7 @@ export default function Game() {
     settlePot(wNum);
   }, [settlePot]);
 
-  // Main turn loop — fully async, ALL REAL
+  // Main turn loop — GPT awaited, Stellar payments fire-and-forget for speed
   const runTurn = useCallback(async () => {
     if (gameStateRef.current !== 'FIGHT' || turnLockRef.current) return;
     turnLockRef.current = true;
@@ -173,61 +173,71 @@ export default function Game() {
     const curRound = roundNum;
     setRoundNum(r => r + 1);
 
-    // 1. Both agents think via real GPT simultaneously
+    // 1. Both agents think via real GPT simultaneously (~300-500ms)
     const [p1Think, p2Think] = await Promise.all([
       chooseMove(p1, p2, true, curRound),
       chooseMove(p2, p1, false, curRound),
     ]);
 
-    // 2. P1 pays for move — real Stellar tx
-    const p1Tx = await apiExecuteMove(1, p1Think.move);
+    // 2. P1: play animation immediately, fire Stellar payment in background
+    const p1Name = FIGHTERS[p1.char!]?.name || 'P1';
     const p1Dmg = playMove(p1, p2, p1Think.move, true);
+    const p1TxId = Date.now().toString() + Math.random();
+    // Add tx entry immediately with "pending"
     setTxLog(prev => [{
-      id: Date.now().toString() + Math.random(),
-      agent: FIGHTERS[p1.char!]?.name || 'P1', move: MOVES[p1Think.move]?.name || p1Think.move,
-      cost: parseFloat(p1Tx.cost || '0'), dmg: p1Dmg,
-      hash: p1Tx.hash || '', ledger: p1Tx.ledger || 0,
-      explorerUrl: p1Tx.explorerUrl || '', timestamp: Date.now(),
+      id: p1TxId, agent: p1Name, move: MOVES[p1Think.move]?.name || p1Think.move,
+      cost: MOVES[p1Think.move]?.cost || 0, dmg: p1Dmg,
+      hash: '', ledger: 0, explorerUrl: '', timestamp: Date.now(),
       reasoning: p1Think.reasoning, type: 'move' as const,
     }, ...prev].slice(0, 30));
+    // Fire Stellar payment — update tx entry when it lands
+    apiExecuteMove(1, p1Think.move).then(tx => {
+      if (tx.success) {
+        setTxLog(prev => prev.map(e => e.id === p1TxId ? { ...e, hash: tx.hash, ledger: tx.ledger, explorerUrl: tx.explorerUrl, cost: parseFloat(tx.cost) } : e));
+      }
+    });
     setP1Balance(p1Ref.current.balance); setP2Balance(p2Ref.current.balance);
 
-    await delay(700);
+    await delay(400);
 
     // 3. Check P2 KO
     if (p2.hp <= 0) {
       p2.anim = 'death'; p2.frame = 0; p2.frameTimer = 0;
-      await delay(1200);
+      await delay(800);
       gameStateRef.current = 'KO'; setGameState('KO');
       setWinner(FIGHTERS[p1.char!]?.name || 'P1');
       if (timerRef.current) clearInterval(timerRef.current);
-      await settlePot(1);
+      settlePot(1);
       turnLockRef.current = false; return;
     }
 
-    // 4. P2 pays for move — real Stellar tx
-    const p2Tx = await apiExecuteMove(2, p2Think.move);
+    // 4. P2: play animation immediately, fire Stellar payment in background
+    const p2Name = FIGHTERS[p2.char!]?.name || 'P2';
     const p2Dmg = playMove(p2, p1, p2Think.move, false);
+    const p2TxId = Date.now().toString() + Math.random();
     setTxLog(prev => [{
-      id: Date.now().toString() + Math.random(),
-      agent: FIGHTERS[p2.char!]?.name || 'P2', move: MOVES[p2Think.move]?.name || p2Think.move,
-      cost: parseFloat(p2Tx.cost || '0'), dmg: p2Dmg,
-      hash: p2Tx.hash || '', ledger: p2Tx.ledger || 0,
-      explorerUrl: p2Tx.explorerUrl || '', timestamp: Date.now(),
+      id: p2TxId, agent: p2Name, move: MOVES[p2Think.move]?.name || p2Think.move,
+      cost: MOVES[p2Think.move]?.cost || 0, dmg: p2Dmg,
+      hash: '', ledger: 0, explorerUrl: '', timestamp: Date.now(),
       reasoning: p2Think.reasoning, type: 'move' as const,
     }, ...prev].slice(0, 30));
+    apiExecuteMove(2, p2Think.move).then(tx => {
+      if (tx.success) {
+        setTxLog(prev => prev.map(e => e.id === p2TxId ? { ...e, hash: tx.hash, ledger: tx.ledger, explorerUrl: tx.explorerUrl, cost: parseFloat(tx.cost) } : e));
+      }
+    });
     setP1Balance(p1Ref.current.balance); setP2Balance(p2Ref.current.balance);
 
-    await delay(700);
+    await delay(400);
 
     // 5. Check P1 KO
     if (p1.hp <= 0) {
       p1.anim = 'death'; p1.frame = 0; p1.frameTimer = 0;
-      await delay(1200);
+      await delay(800);
       gameStateRef.current = 'KO'; setGameState('KO');
       setWinner(FIGHTERS[p2.char!]?.name || 'P2');
       if (timerRef.current) clearInterval(timerRef.current);
-      await settlePot(2);
+      settlePot(2);
       turnLockRef.current = false; return;
     }
 

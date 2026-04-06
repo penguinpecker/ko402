@@ -103,7 +103,7 @@ export const GAME_CONFIG = {
   startBalance: 1.0,
   potPerPlayer: 0.1,
   blockDamageReduction: 0.7,
-  turnDelayMs: 1600,
+  turnDelayMs: 600,
   animSpeedIdle: 10,
   animSpeedAction: 6,
   groundYPercent: 0.75,
