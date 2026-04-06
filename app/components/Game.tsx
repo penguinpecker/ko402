@@ -7,7 +7,7 @@ import {
 } from '../lib/gameConfig';
 import { loadAllSprites, getSpriteImage } from '../lib/spriteLoader';
 import { drawBackground, drawFighter, drawHitEffect } from '../lib/renderer';
-import { apiGetAgentMove, apiExecuteMove, apiSettlePot } from '../lib/gameAPI';
+import { apiGetAgentMove, apiExecuteMove, apiSettlePot, apiDeposit } from '../lib/gameAPI';
 
 const STELLAR = {
   serverWallet: process.env.NEXT_PUBLIC_SERVER_WALLET || 'GCRRX5XDKAAF4Z5UMBZLNVDPGMKXZDMCCQU645Y372MX6DVTEB6XFZ3F',
@@ -43,7 +43,7 @@ function NetworkBadge() {
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
-  const gameStateRef = useRef('HOME' as GameState);
+  const gameStateRef = useRef<string>('HOME');
   const p1Ref = useRef<PlayerState>(createPlayer(1));
   const p2Ref = useRef<PlayerState>(createPlayer(-1));
   const shakeRef = useRef(0);
@@ -52,7 +52,7 @@ export default function Game() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [gameState, setGameState] = useState('HOME' as GameState);
+  const [gameState, setGameState] = useState<string>('HOME');
   const [spritesLoaded, setSpritesLoaded] = useState(false);
   const [selectedP1, setSelectedP1] = useState<string | null>(null);
   const [selectedP2, setSelectedP2] = useState<string | null>(null);
@@ -239,7 +239,30 @@ export default function Game() {
 
   const initFighters=useCallback(()=>{const canvas=canvasRef.current;if(!canvas)return;const p1=p1Ref.current,p2=p2Ref.current;p1.char=selectedP1;p2.char=selectedP2;p1.hp=GAME_CONFIG.maxHp;p2.hp=GAME_CONFIG.maxHp;p1.balance=GAME_CONFIG.startBalance;p2.balance=GAME_CONFIG.startBalance;p1.anim='idle';p2.anim='idle';p1.frame=0;p2.frame=0;p1.x=canvas.width*GAME_CONFIG.p1StartXPercent;p2.x=canvas.width*GAME_CONFIG.p2StartXPercent;p1.facing=1;p2.facing=-1;p1.blocking=false;p2.blocking=false;p1.isDead=false;p2.isDead=false;turnLockRef.current=false;lastP1MoveRef.current=null;lastP2MoveRef.current=null;fightTimerRef.current=60;setSettleTx(null);setP1Hp(GAME_CONFIG.maxHp);setP2Hp(GAME_CONFIG.maxHp);setP1Balance(GAME_CONFIG.startBalance);setP2Balance(GAME_CONFIG.startBalance);setTxLog([]);setRoundNum(0);setFightTimer(60);setTotalP1Spent(0);setTotalP2Spent(0);setTotalP1Dmg(0);setTotalP2Dmg(0);},[selectedP1,selectedP2]);
 
-  const startFight=useCallback(()=>{if(!selectedP1||!selectedP2)return;startMusic();initFighters();gameStateRef.current='VS';setGameState('VS');setVsTimer(0);let count=0;const vi=setInterval(()=>{count++;setVsTimer(count);if(count>=30){clearInterval(vi);gameStateRef.current='FIGHT_INTRO';setGameState('FIGHT_INTRO');setFightIntroText('ROUND 1');setTimeout(()=>{setFightIntroText('FIGHT!');setTimeout(()=>{gameStateRef.current='FIGHT';setGameState('FIGHT');timerRef.current=setInterval(()=>{setFightTimer(t=>{const next=t-1;fightTimerRef.current=next;if(next<=0){endByTimeout();return 0;}return next;});},1000);setTimeout(runTurn,600);},800);},1000);}},100);},[selectedP1,selectedP2,runTurn,startMusic,initFighters,endByTimeout]);
+  const startFight=useCallback(()=>{if(!selectedP1||!selectedP2)return;startMusic();initFighters();gameStateRef.current='VS';setGameState('VS');setVsTimer(0);let count=0;const vi=setInterval(()=>{count++;setVsTimer(count);if(count>=30){clearInterval(vi);gameStateRef.current='FIGHT_INTRO';setGameState('FIGHT_INTRO');setFightIntroText('DEPOSITING POT...');
+        // Real pot deposits — both agents pay 0.1 USDC to server escrow
+        Promise.all([apiDeposit(1), apiDeposit(2)]).then(([d1, d2]) => {
+          // Add deposit txs to feed
+          const entries: TxEntry[] = [];
+          if (d1.success) entries.push({
+            id: 'd1-' + Date.now(), agent: FIGHTERS[selectedP1!]?.name || 'P1', move: 'POT DEPOSIT',
+            cost: 0.1, dmg: 0, hash: d1.hash, ledger: d1.ledger,
+            explorerUrl: d1.explorerUrl, timestamp: Date.now(), type: 'deposit',
+          });
+          if (d2.success) entries.push({
+            id: 'd2-' + Date.now(), agent: FIGHTERS[selectedP2!]?.name || 'P2', move: 'POT DEPOSIT',
+            cost: 0.1, dmg: 0, hash: d2.hash, ledger: d2.ledger,
+            explorerUrl: d2.explorerUrl, timestamp: Date.now(), type: 'deposit',
+          });
+          setTxLog(entries);
+          setFightIntroText('ROUND 1');
+          setTimeout(()=>{setFightIntroText('FIGHT!');setTimeout(()=>{gameStateRef.current='FIGHT';setGameState('FIGHT');timerRef.current=setInterval(()=>{setFightTimer(t=>{const next=t-1;fightTimerRef.current=next;if(next<=0){endByTimeout();return 0;}return next;});},1000);setTimeout(runTurn,600);},800);},1000);
+        }).catch(() => {
+          // If deposits fail, still start the fight
+          setFightIntroText('ROUND 1');
+          setTimeout(()=>{setFightIntroText('FIGHT!');setTimeout(()=>{gameStateRef.current='FIGHT';setGameState('FIGHT');timerRef.current=setInterval(()=>{setFightTimer(t=>{const next=t-1;fightTimerRef.current=next;if(next<=0){endByTimeout();return 0;}return next;});},1000);setTimeout(runTurn,600);},800);},1000);
+        });
+      }},100);},[selectedP1,selectedP2,runTurn,startMusic,initFighters,endByTimeout]);
 
   const goHome=useCallback(()=>{gameStateRef.current='HOME';setGameState('HOME');setSelectedP1(null);setSelectedP2(null);setWinner('');p1Ref.current=createPlayer(1);p2Ref.current=createPlayer(-1);if(timerRef.current)clearInterval(timerRef.current);},[]);
   const goSelect=useCallback(()=>{gameStateRef.current='SELECT';setGameState('SELECT');},[]);
@@ -570,18 +593,18 @@ export default function Game() {
           <div style={{ display:'flex', alignItems:'center', gap:60 }}>
             <div style={{ textAlign:'center', animation:'vsSlideLeft 0.5s ease forwards' }}>
               <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:28, color:FIGHTERS[selectedP1!]?.color||'#FFD700', textShadow:`0 0 30px ${FIGHTERS[selectedP1!]?.color}88`, marginBottom:12 }}>{FIGHTERS[selectedP1!]?.name}</div>
-              <div style={{ fontSize:8, color:'#555', fontFamily:'monospace' }}>{STELLAR.agent1Wallet.slice(0,12)}...{STELLAR.agent1Wallet.slice(-4)}</div>
+              <a href={`${STELLAR.explorerBase}/account/${STELLAR.agent1Wallet}`} target="_blank" rel="noopener noreferrer" style={{ fontSize:8, color:'#4488ff', fontFamily:'monospace', textDecoration:'underline' }}>{STELLAR.agent1Wallet.slice(0,12)}...{STELLAR.agent1Wallet.slice(-4)} ↗</a>
               <div style={{ fontSize:11, color:'#666', fontFamily:'Orbitron,monospace', letterSpacing:3, marginTop:4 }}>AGENT 1</div>
             </div>
             <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:Math.min(80,40+vsTimer*2), color:'#FF4444', textShadow:'0 0 60px rgba(255,68,68,0.8)', opacity:Math.min(1,vsTimer/5) }}>VS</div>
             <div style={{ textAlign:'center', animation:'vsSlideRight 0.5s ease forwards' }}>
               <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:28, color:FIGHTERS[selectedP2!]?.color||'#FF4444', textShadow:`0 0 30px ${FIGHTERS[selectedP2!]?.color}88`, marginBottom:12 }}>{FIGHTERS[selectedP2!]?.name}</div>
-              <div style={{ fontSize:8, color:'#555', fontFamily:'monospace' }}>{STELLAR.agent2Wallet.slice(0,12)}...{STELLAR.agent2Wallet.slice(-4)}</div>
+              <a href={`${STELLAR.explorerBase}/account/${STELLAR.agent2Wallet}`} target="_blank" rel="noopener noreferrer" style={{ fontSize:8, color:'#4488ff', fontFamily:'monospace', textDecoration:'underline' }}>{STELLAR.agent2Wallet.slice(0,12)}...{STELLAR.agent2Wallet.slice(-4)} ↗</a>
               <div style={{ fontSize:11, color:'#666', fontFamily:'Orbitron,monospace', letterSpacing:3, marginTop:4 }}>AGENT 2</div>
             </div>
           </div>
           <div style={{ position:'absolute', bottom:40, textAlign:'center' }}>
-            <div style={{ fontSize:8, color:'#444', fontFamily:'monospace' }}>Escrow: {STELLAR.serverWallet.slice(0,16)}... | Pot: {pot.toFixed(3)} USDC via x402</div>
+            <div style={{ fontSize:8, color:'#444', fontFamily:'monospace' }}>Escrow: <a href={`${STELLAR.explorerBase}/account/${STELLAR.serverWallet}`} target="_blank" rel="noopener noreferrer" style={{color:'#4488ff',textDecoration:'underline'}}>{STELLAR.serverWallet.slice(0,16)}... ↗</a> | Pot: {pot.toFixed(3)} USDC via x402</div>
           </div>
           <div style={{ position:'absolute', top:'50%', left:0, right:0, height:2, background:'linear-gradient(90deg, transparent, rgba(255,68,68,0.3), transparent)' }}/>
         </div>
@@ -589,7 +612,7 @@ export default function Game() {
 
       {/* FIGHT INTRO */}
       {gameState === 'FIGHT_INTRO' && (
-        <div style={{ position:'absolute', inset:0, zIndex:45, display:'flex', alignItems:'center', justifyContent:'center', pointerEvents:'none' }}>
+        <div style={{ position:'absolute', inset:0, zIndex:45, display:'flex', alignItems:'center', justifyContent:'center' }}>
           <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:fightIntroText==='FIGHT!'?72:36, color:fightIntroText==='FIGHT!'?'#FFD700':'#fff', textShadow:fightIntroText==='FIGHT!'?'0 0 60px rgba(255,215,0,0.8)':'0 0 20px rgba(255,255,255,0.3)', animation:fightIntroText==='FIGHT!'?'fightSlam 0.3s ease':'fadeInScale 0.5s ease', letterSpacing:8 }}>{fightIntroText}</div>
         </div>
       )}
@@ -635,9 +658,9 @@ export default function Game() {
         </div>
         <div style={{ position:'absolute', right:16, top:100, width:250, maxHeight:'calc(100vh - 180px)', overflowY:'auto', zIndex:10, display:'flex', flexDirection:'column', gap:4, pointerEvents:'auto' }} className="scrollbar-hide">
           {txLog.map(tx => (
-            <div key={tx.id} style={{ background:'rgba(0,0,0,0.85)', borderLeft:`2px solid ${tx.type === 'settle' ? '#FFD700' : 'rgba(0,255,136,0.4)'}`, padding:'6px 10px', borderRadius:'0 4px 4px 0', fontSize:9, fontFamily:'monospace', color:'#999', animation:'slideIn 0.3s ease' }}>
-              <span style={{color:'#FFD700',fontWeight:'bold'}}>{tx.agent}</span>{' → '}{tx.move}{tx.dmg>0&&<span style={{color:'#ff6666'}}> {tx.dmg}dmg</span>}<br/>
-              <span style={{color:'#00ff88'}}>-{tx.cost.toFixed(3)} USDC</span><span style={{color:'#555'}}> | {STELLAR.network}</span><br/>
+            <div key={tx.id} style={{ background:'rgba(0,0,0,0.85)', borderLeft:`2px solid ${tx.type === 'deposit' ? '#FFD700' : tx.type === 'settle' ? '#8B5CF6' : 'rgba(0,255,136,0.4)'}`, padding:'6px 10px', borderRadius:'0 4px 4px 0', fontSize:9, fontFamily:'monospace', color:'#999', animation:'slideIn 0.3s ease' }}>
+              <span style={{color:'#FFD700',fontWeight:'bold'}}>{tx.agent}</span>{' → '}<span style={{color: tx.type === 'deposit' ? '#FFD700' : '#ccc'}}>{tx.move}</span>{tx.dmg>0&&<span style={{color:'#ff6666'}}> {tx.dmg}dmg</span>}<br/>
+              <span style={{color: tx.type === 'deposit' ? '#FFD700' : '#00ff88'}}>-{tx.cost.toFixed(3)} USDC</span><span style={{color:'#555'}}> | {STELLAR.network}</span><br/>
               {tx.hash ? (
                 <a href={tx.explorerUrl || `${STELLAR.explorerBase}/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer" style={{color:'#4488ff',fontSize:7,textDecoration:'underline',cursor:'pointer'}}>
                   tx: {tx.hash.slice(0,20)}... ↗
