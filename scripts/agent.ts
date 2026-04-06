@@ -89,7 +89,7 @@ async function main() {
 
     // Wait for my turn
     if (state.currentTurn !== MY_SLOT) {
-      await sleep(500);
+      await sleep(200);
       continue;
     }
 
@@ -147,7 +147,7 @@ async function main() {
     }
 
     lastMyMove = move;
-    await sleep(300);
+    await sleep(100);
   }
 
   // 5. Game over

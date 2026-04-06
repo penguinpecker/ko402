@@ -109,7 +109,7 @@ export default function Game() {
       } catch { /* ignore poll errors */ }
     };
     poll();
-    spectateRef.current = setInterval(poll, 600);
+    spectateRef.current = setInterval(poll, 400);
   }, [selectedP1, selectedP2]);
 
   const stopSpectate = useCallback(() => {
@@ -849,11 +849,55 @@ export default function Game() {
 
               {/* KO overlay */}
               {spectateData.status === 'ko' && (
-                <div style={{ position:'absolute', inset:0, zIndex:46, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.7)' }}>
-                  <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:64, color:'#FF4444', textShadow:'0 0 60px rgba(255,68,68,0.7)' }}>K.O.</div>
+                <div style={{ position:'absolute', inset:0, zIndex:46, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.85)', backdropFilter:'blur(6px)', overflowY:'auto', padding:'40px 20px' }}>
+                  <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:64, color:'#FF4444', textShadow:'0 0 60px rgba(255,68,68,0.7)', animation:'pulse 0.5s ease infinite alternate' }}>K.O.</div>
                   <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:18, color:'#FFD700', marginTop:12 }}>{spectateData.winner} WINS!</div>
                   <div style={{ fontSize:22, fontWeight:900, color:'#00ff88', marginTop:8, fontFamily:'Orbitron,monospace' }}>+{spectateData.pot?.toFixed(3)} USDC</div>
-                  <button onClick={()=>{stopSpectate();goHome();}} style={{ marginTop:24, fontFamily:'"Press Start 2P",monospace', fontSize:12, padding:'12px 32px', background:'linear-gradient(135deg,#FFD700,#FF8C00)', color:'#000', border:'none', borderRadius:6, cursor:'pointer' }}>HOME</button>
+                  <div style={{ fontSize:10, color:'#555', marginTop:4 }}>Pot released to winner via Stellar x402</div>
+
+                  {/* Player stats */}
+                  <div style={{ display:'flex', gap:24, marginTop:20 }}>
+                    <div style={{ background:'rgba(0,0,0,0.5)', border:`1px solid ${spectateData.winner === spectateData.p1?.name ? 'rgba(0,255,136,0.3)' : 'rgba(255,255,255,0.05)'}`, borderRadius:8, padding:'12px 20px', minWidth:180 }}>
+                      <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:8, color:FIGHTERS[spectateData.p1?.fighter]?.color || '#FFD700', marginBottom:8 }}>{spectateData.p1?.name} {spectateData.winner === spectateData.p1?.name ? '🏆' : '💀'}</div>
+                      <div style={{ fontSize:9, color:'#888', fontFamily:'monospace' }}>HP: <span style={{color: spectateData.p1?.hp > 0 ? '#fff' : '#ff4444'}}>{spectateData.p1?.hp}</span></div>
+                      <div style={{ fontSize:9, color:'#888', fontFamily:'monospace' }}>Balance: <span style={{color:'#00ff88'}}>{spectateData.p1?.balance?.toFixed(3)} USDC</span></div>
+                      <div style={{ fontSize:9, color:'#888', fontFamily:'monospace' }}>Moves: <span style={{color:'#ccc'}}>{(spectateData.txLog || []).filter((t:any) => t.agent === spectateData.p1?.name).length}</span></div>
+                      <a href={`${STELLAR.explorerBase}/account/${spectateData.p1?.wallet}`} target="_blank" rel="noopener noreferrer" style={{fontSize:8,color:'#4488ff',fontFamily:'monospace',textDecoration:'underline',display:'block',marginTop:4}}>{spectateData.p1?.wallet?.slice(0,8)}...{spectateData.p1?.wallet?.slice(-4)} ↗</a>
+                    </div>
+                    <div style={{ background:'rgba(0,0,0,0.5)', border:`1px solid ${spectateData.winner === spectateData.p2?.name ? 'rgba(0,255,136,0.3)' : 'rgba(255,255,255,0.05)'}`, borderRadius:8, padding:'12px 20px', minWidth:180 }}>
+                      <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:8, color:FIGHTERS[spectateData.p2?.fighter]?.color || '#FF4444', marginBottom:8 }}>{spectateData.p2?.name} {spectateData.winner === spectateData.p2?.name ? '🏆' : '💀'}</div>
+                      <div style={{ fontSize:9, color:'#888', fontFamily:'monospace' }}>HP: <span style={{color: spectateData.p2?.hp > 0 ? '#fff' : '#ff4444'}}>{spectateData.p2?.hp}</span></div>
+                      <div style={{ fontSize:9, color:'#888', fontFamily:'monospace' }}>Balance: <span style={{color:'#00ff88'}}>{spectateData.p2?.balance?.toFixed(3)} USDC</span></div>
+                      <div style={{ fontSize:9, color:'#888', fontFamily:'monospace' }}>Moves: <span style={{color:'#ccc'}}>{(spectateData.txLog || []).filter((t:any) => t.agent === spectateData.p2?.name).length}</span></div>
+                      <a href={`${STELLAR.explorerBase}/account/${spectateData.p2?.wallet}`} target="_blank" rel="noopener noreferrer" style={{fontSize:8,color:'#4488ff',fontFamily:'monospace',textDecoration:'underline',display:'block',marginTop:4}}>{spectateData.p2?.wallet?.slice(0,8)}...{spectateData.p2?.wallet?.slice(-4)} ↗</a>
+                    </div>
+                  </div>
+
+                  {/* Fight summary */}
+                  <div style={{ background:'rgba(0,0,0,0.4)', border:'1px solid rgba(0,255,136,0.1)', borderRadius:6, padding:'10px 20px', marginTop:16, textAlign:'center' }}>
+                    <div style={{ fontSize:9, color:'#888', fontFamily:'monospace' }}>
+                      Total Rounds: <span style={{color:'#FFD700'}}>{spectateData.turn}</span> | 
+                      Onchain TXs: <span style={{color:'#00ff88'}}>{(spectateData.txLog || []).filter((t:any) => t.hash).length}</span> | 
+                      Network: <span style={{color:'#4488ff'}}>{STELLAR.network}</span>
+                    </div>
+                    {/* Last tx with hash as settlement link */}
+                    {(() => {
+                      const lastTx = (spectateData.txLog || []).filter((t:any) => t.hash).slice(-1)[0];
+                      return lastTx ? (
+                        <div style={{ marginTop:6 }}>
+                          <div style={{ fontSize:7, color:'#00ff88', fontFamily:'"Press Start 2P",monospace', letterSpacing:1 }}>LATEST ONCHAIN TX</div>
+                          <a href={lastTx.explorerUrl || `${STELLAR.explorerBase}/tx/${lastTx.hash}`} target="_blank" rel="noopener noreferrer" style={{fontSize:8,color:'#4488ff',fontFamily:'monospace',textDecoration:'underline',display:'block',marginTop:2}}>
+                            {lastTx.hash.slice(0,32)}... ↗ View on Stellar Expert
+                          </a>
+                        </div>
+                      ) : null;
+                    })()}
+                    <a href={`${STELLAR.explorerBase}/account/${STELLAR.serverWallet}`} target="_blank" rel="noopener noreferrer" style={{fontSize:7,color:'#4488ff',fontFamily:'monospace',textDecoration:'underline',display:'block',marginTop:6}}>
+                      Escrow Wallet: {STELLAR.serverWallet.slice(0,12)}... ↗
+                    </a>
+                  </div>
+
+                  <button onClick={()=>{stopSpectate();goHome();}} style={{ marginTop:20, fontFamily:'"Press Start 2P",monospace', fontSize:12, padding:'12px 32px', background:'linear-gradient(135deg,#FFD700,#FF8C00)', color:'#000', border:'none', borderRadius:6, cursor:'pointer' }}>HOME</button>
                 </div>
               )}
             </>
