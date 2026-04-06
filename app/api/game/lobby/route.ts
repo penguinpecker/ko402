@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'wallet, fighter, and name required' }, { status: 400 });
     }
 
-    const result = joinRoom(wallet, fighter, name);
+    const result = await joinRoom(wallet, fighter, name);
 
     if ('error' in result) {
       return NextResponse.json({ error: result.error }, { status: 409 });
@@ -41,6 +41,6 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE() {
-  resetRoom();
+  await resetRoom();
   return NextResponse.json({ success: true, message: 'Room reset' });
 }
