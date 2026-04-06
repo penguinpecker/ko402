@@ -18,6 +18,6 @@ export async function GET() {
     winner: room.winner, pot: room.pot,
     p1: room.p1 ? { name: room.p1.name, fighter: room.p1.fighter, wallet: room.p1.wallet, hp: room.p1.hp, balance: room.p1.balance } : null,
     p2: room.p2 ? { name: room.p2.name, fighter: room.p2.fighter, wallet: room.p2.wallet, hp: room.p2.hp, balance: room.p2.balance } : null,
-    txLog: room.txLog.slice(-20), lastUpdate: room.lastUpdate,
+    txLog: room.txLog, lastUpdate: room.lastUpdate,
   });
 }
