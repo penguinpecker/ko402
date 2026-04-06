@@ -108,7 +108,7 @@ async function main() {
     }
 
     // Think via GPT
-    log(`${C.mag}🧠 Thinking... (HP: ${me?.hp}/${opp?.hp}, Bal: ${me?.balance?.toFixed(3)}/${opp?.balance?.toFixed(3)})${C.r}`);
+    log(`${C.mag}🧠 Thinking... (HP: ${me?.hp}/${opp?.hp}, Bal: ${me?.balance?.toFixed(3)}/${opp?.balance?.toFixed(3)}, ⏱ ${state.timeRemaining || '?'}s)${C.r}`);
     const think = await api('/api/game/think', 'POST', {
       myHp: me?.hp || 0, opponentHp: opp?.hp || 0,
       myBalance: me?.balance || 0, opponentBalance: opp?.balance || 0,
@@ -162,6 +162,11 @@ async function main() {
   }
   log(`Final: ${state.p1?.name} HP:${state.p1?.hp} | ${state.p2?.name} HP:${state.p2?.hp}`);
   log(`Moves: ${state.txLog?.length || 0} | Onchain: ${state.txLog?.filter((t: any) => t.hash).length || 0}`);
+  const lastTx = (state.txLog || []).filter((t: any) => t.hash).slice(-1)[0];
+  if (lastTx) {
+    log(`${C.blu}Latest TX: ${lastTx.explorerUrl || "https://stellar.expert/explorer/testnet/tx/" + lastTx.hash}${C.r}`);
+  }
+  log(`${C.blu}Escrow: https://stellar.expert/explorer/testnet/account/GCRRX5XDKAAF4Z5UMBZLNVDPGMKXZDMCCQU645Y372MX6DVTEB6XFZ3F${C.r}`);
   console.log(`${C.b}${'═'.repeat(40)}${C.r}\n`);
 }
 

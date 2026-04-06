@@ -819,9 +819,10 @@ export default function Game() {
                 <div style={{ textAlign:'center' }}>
                   <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:8, color:'rgba(255,215,0,0.5)' }}>PRIZE POT</div>
                   <div style={{ fontSize:20, fontWeight:900, color:'#FFD700', fontFamily:'Orbitron,monospace' }}>{spectateData.pot?.toFixed(3)} USDC</div>
-                  <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:22, color: spectateData.status === 'ko' ? '#FF4444' : '#FFD700' }}>
-                    {spectateData.status === 'ko' ? 'K.O.' : `R${spectateData.turn || 0}`}
+                  <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:28, color: spectateData.status === 'ko' ? '#FF4444' : (spectateData.timeRemaining || 0) <= 10 ? '#FF4444' : (spectateData.timeRemaining || 0) <= 20 ? '#eab308' : '#FFD700', textShadow: (spectateData.timeRemaining || 60) <= 10 ? '0 0 20px rgba(255,68,68,0.6)' : 'none' }}>
+                    {spectateData.status === 'ko' ? 'K.O.' : `${spectateData.timeRemaining || 60}s`}
                   </div>
+                  <div style={{ fontSize:8, color:'#555', fontFamily:'monospace' }}>Round {spectateData.turn || 0} | {spectateData.currentTurn?.toUpperCase()}&apos;s turn</div>
                 </div>
                 <div style={{ width:'35%', textAlign:'right' }}>
                   <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:10, color:FIGHTERS[spectateData.p2?.fighter]?.color || '#FF4444', marginBottom:4 }}><span style={{color:'#888',fontSize:8}}>(AI)</span> {spectateData.p2?.name}</div>
