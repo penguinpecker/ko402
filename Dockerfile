@@ -1,17 +1,11 @@
-FROM node:22 AS builder
+FROM node:22
 WORKDIR /app
 COPY package.json ./
-RUN npm install --force --package-lock-only && npm install --force
+RUN npm i --force && npm i @next/swc-linux-x64-gnu @next/swc-linux-x64-musl --force
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
-
-FROM node:22-slim
-WORKDIR /app
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+RUN npx next build
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
-CMD ["node", "server.js"]
+CMD ["npx", "next", "start"]
