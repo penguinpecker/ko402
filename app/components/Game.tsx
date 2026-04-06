@@ -7,18 +7,18 @@ import {
 } from '../lib/gameConfig';
 import { loadAllSprites, getSpriteImage } from '../lib/spriteLoader';
 import { drawBackground, drawFighter, drawHitEffect } from '../lib/renderer';
-import { apiGetAgentMove } from '../lib/gameAPI';
+import { apiGetAgentMove, apiExecuteMove, apiSettlePot } from '../lib/gameAPI';
 
-const MOCK = {
-  escrowContract: 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2TOZQIP3',
-  p1Wallet: 'GA3MRUEXSDSAI5Y567VMAXNFJDBSQGNOPUOIIBVWWOVTPLFLK2USUFW7',
-  p2Wallet: 'GBX7KFNQR5IOPYQGMQNTZAERO4GQST7MZUOIA2IQKCLKFNE3A2PZIUQM',
+const STELLAR = {
+  serverWallet: process.env.NEXT_PUBLIC_SERVER_WALLET || 'GCRRX5XDKAAF4Z5UMBZLNVDPGMKXZDMCCQU645Y372MX6DVTEB6XFZ3F',
+  agent1Wallet: process.env.NEXT_PUBLIC_AGENT1_WALLET || 'GABCOE5R6P2NIGZ7RN5AHKRBO7AAEMHOMJU3U54TXNAFPIY72ZKNROKF',
+  agent2Wallet: process.env.NEXT_PUBLIC_AGENT2_WALLET || 'GBYG4FCBBDTCIGPU7IIRMSHO3T7TQSA2KPU5ZRA3XYYFYRBMULN7NJ3D',
   facilitator: 'https://channels.openzeppelin.com/x402/testnet',
   network: 'stellar:testnet',
+  explorerBase: 'https://stellar.expert/explorer/testnet',
 };
 
-function mockTxHash() { const c='abcdef0123456789'; let h=''; for(let i=0;i<64;i++) h+=c[Math.floor(Math.random()*c.length)]; return h; }
-function mockLedger() { return Math.floor(3400000+Math.random()*10000); }
+function delay(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 function MoveIcon({ type, size=14 }: { type: string; size?: number }) {
   if (type === 'light') return (<svg width={size} height={size} viewBox="0 0 16 16" fill="none"><rect x="6" y="2" width="4" height="4" fill="#FFD700"/><rect x="4" y="6" width="8" height="4" fill="#FFD700"/><rect x="2" y="6" width="2" height="2" fill="#FFD700"/><rect x="6" y="10" width="2" height="4" fill="#FFD700"/><rect x="10" y="10" width="2" height="4" fill="#FFD700"/></svg>);
@@ -75,6 +75,7 @@ export default function Game() {
   const lastP1MoveRef = useRef<string | null>(null);
   const lastP2MoveRef = useRef<string | null>(null);
   const fightTimerRef = useRef(60);
+  const [settleTx, setSettleTx] = useState<{ hash: string; explorerUrl: string } | null>(null);
 
   useEffect(() => { loadAllSprites().then(() => setSpritesLoaded(true)); }, []);
   const startMusic = useCallback(() => { if(musicStarted)return; const a=new Audio('/audio/fight-music.wav'); a.loop=true; a.volume=0.3; a.play().catch(()=>{}); audioRef.current=a; setMusicStarted(true); }, [musicStarted]);
@@ -99,66 +100,144 @@ export default function Game() {
     return()=>{cancelAnimationFrame(animRef.current);window.removeEventListener('resize',resize);};
   }, [spritesLoaded]);
 
-  // GPT Agent Brain — async call to /api/game/think
+  // GPT Agent Brain — real OpenAI call, returns move + reasoning
   const chooseMove = useCallback(async (
     attacker: PlayerState, defender: PlayerState,
-    isP1: boolean, roundNum: number,
-  ): Promise<'light' | 'heavy' | 'block'> => {
+    isP1: boolean, curRound: number,
+  ): Promise<{ move: 'light' | 'heavy' | 'block'; reasoning?: string }> => {
     try {
-      const result = await apiGetAgentMove({
-        myHp: attacker.hp,
-        opponentHp: defender.hp,
-        myBalance: attacker.balance,
-        opponentBalance: defender.balance,
-        myChar: attacker.char || 'unknown',
-        opponentChar: defender.char || 'unknown',
-        roundNum,
-        timeLeft: fightTimerRef.current,
+      return await apiGetAgentMove({
+        myHp: attacker.hp, opponentHp: defender.hp,
+        myBalance: attacker.balance, opponentBalance: defender.balance,
+        myChar: attacker.char || 'unknown', opponentChar: defender.char || 'unknown',
+        roundNum: curRound, timeLeft: fightTimerRef.current,
         lastOpponentMove: isP1 ? lastP2MoveRef.current : lastP1MoveRef.current,
         myLastMove: isP1 ? lastP1MoveRef.current : lastP2MoveRef.current,
       });
-      return result.move;
-    } catch {
-      return 'light'; // fallback
-    }
+    } catch { return { move: 'light' }; }
   }, []);
 
-  const executeMove=useCallback((attacker:PlayerState,defender:PlayerState,moveId:string,agentName:string,isP1:boolean)=>{
-    // Track last moves
-    if (isP1) lastP1MoveRef.current = moveId;
-    else lastP2MoveRef.current = moveId;
-    const move=MOVES[moveId];let dmg=moveId!=='block'?move.minDmg+Math.floor(Math.random()*(move.maxDmg-move.minDmg+1)):0;
-    attacker.balance=Math.max(0,+(attacker.balance-move.cost).toFixed(4));
-    if(isP1){setTotalP1Spent(p=>+(p+move.cost).toFixed(4));}else{setTotalP2Spent(p=>+(p+move.cost).toFixed(4));}
-    let animKey=move.animKey;if(animKey==='attack2'&&!FIGHTERS[attacker.char!]?.sprites.attack2)animKey='attack1';
-    if(moveId==='block'){attacker.blocking=true;setTimeout(()=>{attacker.blocking=false;},1400);}
-    else{attacker.anim=animKey;attacker.frame=0;attacker.frameTimer=0;
-      setTimeout(()=>{if(defender.blocking)dmg=Math.floor(dmg*(1-GAME_CONFIG.blockDamageReduction));defender.hp=Math.max(0,defender.hp-dmg);if(isP1){setTotalP1Dmg(d=>d+dmg);}else{setTotalP2Dmg(d=>d+dmg);}if(dmg>0&&defender.hp>0){defender.anim='takehit';defender.frame=0;defender.frameTimer=0;}shakeRef.current=Math.min(dmg*0.4,12);const canvas=canvasRef.current;if(canvas){const defX=defender.facing===1?canvas.width*GAME_CONFIG.p1StartXPercent:canvas.width*GAME_CONFIG.p2StartXPercent;hitEffectRef.current={x:defX,y:canvas.height*GAME_CONFIG.groundYPercent-100,timer:15};}setP1Hp(p1Ref.current.hp);setP2Hp(p2Ref.current.hp);setP1Balance(p1Ref.current.balance);setP2Balance(p2Ref.current.balance);},300);}
-    setTxLog(prev=>[{id:Date.now().toString()+Math.random(),agent:agentName,move:move.name,cost:move.cost,dmg,hash:mockTxHash(),ledger:mockLedger(),timestamp:Date.now()},...prev].slice(0,25));
-    setP1Balance(p1Ref.current.balance);setP2Balance(p2Ref.current.balance);
-  },[]);
+  // Play animation + apply damage (visual only, no payment)
+  const playMove = useCallback((attacker: PlayerState, defender: PlayerState, moveId: string, isP1: boolean): number => {
+    if (isP1) lastP1MoveRef.current = moveId; else lastP2MoveRef.current = moveId;
+    const move = MOVES[moveId];
+    let dmg = moveId !== 'block' ? move.minDmg + Math.floor(Math.random() * (move.maxDmg - move.minDmg + 1)) : 0;
+    attacker.balance = Math.max(0, +(attacker.balance - move.cost).toFixed(4));
+    if (isP1) setTotalP1Spent(p => +(p + move.cost).toFixed(4)); else setTotalP2Spent(p => +(p + move.cost).toFixed(4));
+    let animKey = move.animKey;
+    if (animKey === 'attack2' && !FIGHTERS[attacker.char!]?.sprites.attack2) animKey = 'attack1';
+    if (moveId === 'block') {
+      attacker.blocking = true; setTimeout(() => { attacker.blocking = false; }, 1400);
+    } else {
+      attacker.anim = animKey; attacker.frame = 0; attacker.frameTimer = 0;
+      setTimeout(() => {
+        if (defender.blocking) dmg = Math.floor(dmg * (1 - GAME_CONFIG.blockDamageReduction));
+        defender.hp = Math.max(0, defender.hp - dmg);
+        if (isP1) setTotalP1Dmg(d => d + dmg); else setTotalP2Dmg(d => d + dmg);
+        if (dmg > 0 && defender.hp > 0) { defender.anim = 'takehit'; defender.frame = 0; defender.frameTimer = 0; }
+        shakeRef.current = Math.min(dmg * 0.4, 12);
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const defX = defender.facing === 1 ? canvas.width * GAME_CONFIG.p1StartXPercent : canvas.width * GAME_CONFIG.p2StartXPercent;
+          hitEffectRef.current = { x: defX, y: canvas.height * GAME_CONFIG.groundYPercent - 100, timer: 15 };
+        }
+        setP1Hp(p1Ref.current.hp); setP2Hp(p2Ref.current.hp);
+        setP1Balance(p1Ref.current.balance); setP2Balance(p2Ref.current.balance);
+      }, 300);
+    }
+    return dmg;
+  }, []);
 
-  const endByTimeout=useCallback(()=>{const p1=p1Ref.current,p2=p2Ref.current;const w=p1.hp>=p2.hp?FIGHTERS[p1.char!]?.name||'P1':FIGHTERS[p2.char!]?.name||'P2';gameStateRef.current='KO';setGameState('KO');setWinner(w);if(timerRef.current)clearInterval(timerRef.current);},[]);
+  // Settle pot to winner — real Stellar tx
+  const settlePot = useCallback(async (winnerAgentNum: 1 | 2) => {
+    const winnerWallet = winnerAgentNum === 1 ? STELLAR.agent1Wallet : STELLAR.agent2Wallet;
+    const result = await apiSettlePot(winnerWallet, pot.toFixed(7));
+    if (result.success) setSettleTx({ hash: result.hash, explorerUrl: result.explorerUrl });
+    return result;
+  }, [pot]);
 
-  const runTurn=useCallback(async ()=>{
-    if(gameStateRef.current!=='FIGHT'||turnLockRef.current)return;turnLockRef.current=true;
-    const p1=p1Ref.current,p2=p2Ref.current;
+  const endByTimeout = useCallback(() => {
+    const p1 = p1Ref.current, p2 = p2Ref.current;
+    const w = p1.hp >= p2.hp ? FIGHTERS[p1.char!]?.name || 'P1' : FIGHTERS[p2.char!]?.name || 'P2';
+    const wNum: 1 | 2 = p1.hp >= p2.hp ? 1 : 2;
+    gameStateRef.current = 'KO'; setGameState('KO'); setWinner(w);
+    if (timerRef.current) clearInterval(timerRef.current);
+    settlePot(wNum);
+  }, [settlePot]);
+
+  // Main turn loop — fully async, ALL REAL
+  const runTurn = useCallback(async () => {
+    if (gameStateRef.current !== 'FIGHT' || turnLockRef.current) return;
+    turnLockRef.current = true;
+    const p1 = p1Ref.current, p2 = p2Ref.current;
     const curRound = roundNum;
-    setRoundNum(r=>r+1);
+    setRoundNum(r => r + 1);
 
-    // Both agents think simultaneously via GPT
-    const [p1Move, p2Move] = await Promise.all([
+    // 1. Both agents think via real GPT simultaneously
+    const [p1Think, p2Think] = await Promise.all([
       chooseMove(p1, p2, true, curRound),
       chooseMove(p2, p1, false, curRound),
     ]);
 
-    executeMove(p1,p2,p1Move,FIGHTERS[p1.char!]?.name||'P1',true);
-    setTimeout(()=>{if(p2.hp<=0){p2.anim='death';p2.frame=0;p2.frameTimer=0;setTimeout(()=>{gameStateRef.current='KO';setGameState('KO');setWinner(FIGHTERS[p1.char!]?.name||'P1');if(timerRef.current)clearInterval(timerRef.current);},1200);turnLockRef.current=false;return;}
-      executeMove(p2,p1,p2Move,FIGHTERS[p2.char!]?.name||'P2',false);
-      setTimeout(()=>{if(p1.hp<=0){p1.anim='death';p1.frame=0;p1.frameTimer=0;setTimeout(()=>{gameStateRef.current='KO';setGameState('KO');setWinner(FIGHTERS[p2.char!]?.name||'P2');if(timerRef.current)clearInterval(timerRef.current);},1200);turnLockRef.current=false;return;}turnLockRef.current=false;setTimeout(runTurn,GAME_CONFIG.turnDelayMs);},700);},700);
-  },[chooseMove,executeMove,endByTimeout,roundNum]);
+    // 2. P1 pays for move — real Stellar tx
+    const p1Tx = await apiExecuteMove(1, p1Think.move);
+    const p1Dmg = playMove(p1, p2, p1Think.move, true);
+    setTxLog(prev => [{
+      id: Date.now().toString() + Math.random(),
+      agent: FIGHTERS[p1.char!]?.name || 'P1', move: MOVES[p1Think.move]?.name || p1Think.move,
+      cost: parseFloat(p1Tx.cost || '0'), dmg: p1Dmg,
+      hash: p1Tx.hash || '', ledger: p1Tx.ledger || 0,
+      explorerUrl: p1Tx.explorerUrl || '', timestamp: Date.now(),
+      reasoning: p1Think.reasoning, type: 'move' as const,
+    }, ...prev].slice(0, 30));
+    setP1Balance(p1Ref.current.balance); setP2Balance(p2Ref.current.balance);
 
-  const initFighters=useCallback(()=>{const canvas=canvasRef.current;if(!canvas)return;const p1=p1Ref.current,p2=p2Ref.current;p1.char=selectedP1;p2.char=selectedP2;p1.hp=GAME_CONFIG.maxHp;p2.hp=GAME_CONFIG.maxHp;p1.balance=GAME_CONFIG.startBalance;p2.balance=GAME_CONFIG.startBalance;p1.anim='idle';p2.anim='idle';p1.frame=0;p2.frame=0;p1.x=canvas.width*GAME_CONFIG.p1StartXPercent;p2.x=canvas.width*GAME_CONFIG.p2StartXPercent;p1.facing=1;p2.facing=-1;p1.blocking=false;p2.blocking=false;p1.isDead=false;p2.isDead=false;turnLockRef.current=false;lastP1MoveRef.current=null;lastP2MoveRef.current=null;fightTimerRef.current=60;setP1Hp(GAME_CONFIG.maxHp);setP2Hp(GAME_CONFIG.maxHp);setP1Balance(GAME_CONFIG.startBalance);setP2Balance(GAME_CONFIG.startBalance);setTxLog([]);setRoundNum(0);setFightTimer(60);setTotalP1Spent(0);setTotalP2Spent(0);setTotalP1Dmg(0);setTotalP2Dmg(0);},[selectedP1,selectedP2]);
+    await delay(700);
+
+    // 3. Check P2 KO
+    if (p2.hp <= 0) {
+      p2.anim = 'death'; p2.frame = 0; p2.frameTimer = 0;
+      await delay(1200);
+      gameStateRef.current = 'KO'; setGameState('KO');
+      setWinner(FIGHTERS[p1.char!]?.name || 'P1');
+      if (timerRef.current) clearInterval(timerRef.current);
+      await settlePot(1);
+      turnLockRef.current = false; return;
+    }
+
+    // 4. P2 pays for move — real Stellar tx
+    const p2Tx = await apiExecuteMove(2, p2Think.move);
+    const p2Dmg = playMove(p2, p1, p2Think.move, false);
+    setTxLog(prev => [{
+      id: Date.now().toString() + Math.random(),
+      agent: FIGHTERS[p2.char!]?.name || 'P2', move: MOVES[p2Think.move]?.name || p2Think.move,
+      cost: parseFloat(p2Tx.cost || '0'), dmg: p2Dmg,
+      hash: p2Tx.hash || '', ledger: p2Tx.ledger || 0,
+      explorerUrl: p2Tx.explorerUrl || '', timestamp: Date.now(),
+      reasoning: p2Think.reasoning, type: 'move' as const,
+    }, ...prev].slice(0, 30));
+    setP1Balance(p1Ref.current.balance); setP2Balance(p2Ref.current.balance);
+
+    await delay(700);
+
+    // 5. Check P1 KO
+    if (p1.hp <= 0) {
+      p1.anim = 'death'; p1.frame = 0; p1.frameTimer = 0;
+      await delay(1200);
+      gameStateRef.current = 'KO'; setGameState('KO');
+      setWinner(FIGHTERS[p2.char!]?.name || 'P2');
+      if (timerRef.current) clearInterval(timerRef.current);
+      await settlePot(2);
+      turnLockRef.current = false; return;
+    }
+
+    // 6. Next turn
+    turnLockRef.current = false;
+    await delay(GAME_CONFIG.turnDelayMs);
+    runTurn();
+  }, [chooseMove, playMove, endByTimeout, settlePot, roundNum]);
+
+  const initFighters=useCallback(()=>{const canvas=canvasRef.current;if(!canvas)return;const p1=p1Ref.current,p2=p2Ref.current;p1.char=selectedP1;p2.char=selectedP2;p1.hp=GAME_CONFIG.maxHp;p2.hp=GAME_CONFIG.maxHp;p1.balance=GAME_CONFIG.startBalance;p2.balance=GAME_CONFIG.startBalance;p1.anim='idle';p2.anim='idle';p1.frame=0;p2.frame=0;p1.x=canvas.width*GAME_CONFIG.p1StartXPercent;p2.x=canvas.width*GAME_CONFIG.p2StartXPercent;p1.facing=1;p2.facing=-1;p1.blocking=false;p2.blocking=false;p1.isDead=false;p2.isDead=false;turnLockRef.current=false;lastP1MoveRef.current=null;lastP2MoveRef.current=null;fightTimerRef.current=60;setSettleTx(null);setP1Hp(GAME_CONFIG.maxHp);setP2Hp(GAME_CONFIG.maxHp);setP1Balance(GAME_CONFIG.startBalance);setP2Balance(GAME_CONFIG.startBalance);setTxLog([]);setRoundNum(0);setFightTimer(60);setTotalP1Spent(0);setTotalP2Spent(0);setTotalP1Dmg(0);setTotalP2Dmg(0);},[selectedP1,selectedP2]);
 
   const startFight=useCallback(()=>{if(!selectedP1||!selectedP2)return;startMusic();initFighters();gameStateRef.current='VS';setGameState('VS');setVsTimer(0);let count=0;const vi=setInterval(()=>{count++;setVsTimer(count);if(count>=30){clearInterval(vi);gameStateRef.current='FIGHT_INTRO';setGameState('FIGHT_INTRO');setFightIntroText('ROUND 1');setTimeout(()=>{setFightIntroText('FIGHT!');setTimeout(()=>{gameStateRef.current='FIGHT';setGameState('FIGHT');timerRef.current=setInterval(()=>{setFightTimer(t=>{const next=t-1;fightTimerRef.current=next;if(next<=0){endByTimeout();return 0;}return next;});},1000);setTimeout(runTurn,600);},800);},1000);}},100);},[selectedP1,selectedP2,runTurn,startMusic,initFighters,endByTimeout]);
 
@@ -428,9 +507,9 @@ export default function Game() {
             <div style={{ background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.04)', borderRadius:10, padding:'16px 24px', marginBottom:40 }}>
               <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:8, color:'#555', marginBottom:10, letterSpacing:2 }}>ONCHAIN DETAILS</div>
               <div style={{ display:'flex', gap:24, flexWrap:'wrap' }}>
-                <div style={{ fontSize:9, fontFamily:'monospace', color:'#555' }}>Escrow: <span style={{color:'#888'}}>{MOCK.escrowContract}</span></div>
-                <div style={{ fontSize:9, fontFamily:'monospace', color:'#555' }}>Network: <span style={{color:'#888'}}>{MOCK.network}</span></div>
-                <div style={{ fontSize:9, fontFamily:'monospace', color:'#555' }}>Facilitator: <span style={{color:'#888'}}>{MOCK.facilitator}</span></div>
+                <div style={{ fontSize:9, fontFamily:'monospace', color:'#555' }}>Escrow: <span style={{color:'#888'}}>{STELLAR.serverWallet}</span></div>
+                <div style={{ fontSize:9, fontFamily:'monospace', color:'#555' }}>Network: <span style={{color:'#888'}}>{STELLAR.network}</span></div>
+                <div style={{ fontSize:9, fontFamily:'monospace', color:'#555' }}>Facilitator: <span style={{color:'#888'}}>{STELLAR.facilitator}</span></div>
                 <div style={{ fontSize:9, fontFamily:'monospace', color:'#555' }}>Agent Brain: <span style={{color:'#888'}}>OpenAI GPT (server-hosted)</span></div>
               </div>
             </div>
@@ -458,7 +537,7 @@ export default function Game() {
           <div style={{ display:'flex', gap:12, marginBottom:20 }}>
             <div style={{ background:'rgba(0,0,0,0.4)', border:'1px solid rgba(255,255,255,0.05)', borderRadius:8, padding:'6px 14px', textAlign:'center' }}>
               <div style={{ fontSize:6, color:'#666', fontFamily:'monospace' }}>ESCROW</div>
-              <div style={{ fontSize:7, color:'#FFD700', fontFamily:'monospace', marginTop:2 }}>{MOCK.escrowContract.slice(0,8)}...{MOCK.escrowContract.slice(-6)}</div>
+              <div style={{ fontSize:7, color:'#FFD700', fontFamily:'monospace', marginTop:2 }}>{STELLAR.serverWallet.slice(0,8)}...{STELLAR.serverWallet.slice(-6)}</div>
             </div>
             <div style={{ background:'rgba(0,0,0,0.4)', border:'1px solid rgba(255,255,255,0.05)', borderRadius:8, padding:'6px 14px', textAlign:'center' }}>
               <div style={{ fontSize:6, color:'#666', fontFamily:'monospace' }}>ENTRY FEE</div>
@@ -491,18 +570,18 @@ export default function Game() {
           <div style={{ display:'flex', alignItems:'center', gap:60 }}>
             <div style={{ textAlign:'center', animation:'vsSlideLeft 0.5s ease forwards' }}>
               <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:28, color:FIGHTERS[selectedP1!]?.color||'#FFD700', textShadow:`0 0 30px ${FIGHTERS[selectedP1!]?.color}88`, marginBottom:12 }}>{FIGHTERS[selectedP1!]?.name}</div>
-              <div style={{ fontSize:8, color:'#555', fontFamily:'monospace' }}>{MOCK.p1Wallet.slice(0,12)}...{MOCK.p1Wallet.slice(-4)}</div>
+              <div style={{ fontSize:8, color:'#555', fontFamily:'monospace' }}>{STELLAR.agent1Wallet.slice(0,12)}...{STELLAR.agent1Wallet.slice(-4)}</div>
               <div style={{ fontSize:11, color:'#666', fontFamily:'Orbitron,monospace', letterSpacing:3, marginTop:4 }}>AGENT 1</div>
             </div>
             <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:Math.min(80,40+vsTimer*2), color:'#FF4444', textShadow:'0 0 60px rgba(255,68,68,0.8)', opacity:Math.min(1,vsTimer/5) }}>VS</div>
             <div style={{ textAlign:'center', animation:'vsSlideRight 0.5s ease forwards' }}>
               <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:28, color:FIGHTERS[selectedP2!]?.color||'#FF4444', textShadow:`0 0 30px ${FIGHTERS[selectedP2!]?.color}88`, marginBottom:12 }}>{FIGHTERS[selectedP2!]?.name}</div>
-              <div style={{ fontSize:8, color:'#555', fontFamily:'monospace' }}>{MOCK.p2Wallet.slice(0,12)}...{MOCK.p2Wallet.slice(-4)}</div>
+              <div style={{ fontSize:8, color:'#555', fontFamily:'monospace' }}>{STELLAR.agent2Wallet.slice(0,12)}...{STELLAR.agent2Wallet.slice(-4)}</div>
               <div style={{ fontSize:11, color:'#666', fontFamily:'Orbitron,monospace', letterSpacing:3, marginTop:4 }}>AGENT 2</div>
             </div>
           </div>
           <div style={{ position:'absolute', bottom:40, textAlign:'center' }}>
-            <div style={{ fontSize:8, color:'#444', fontFamily:'monospace' }}>Escrow: {MOCK.escrowContract.slice(0,16)}... | Pot: {pot.toFixed(3)} USDC via x402</div>
+            <div style={{ fontSize:8, color:'#444', fontFamily:'monospace' }}>Escrow: {STELLAR.serverWallet.slice(0,16)}... | Pot: {pot.toFixed(3)} USDC via x402</div>
           </div>
           <div style={{ position:'absolute', top:'50%', left:0, right:0, height:2, background:'linear-gradient(90deg, transparent, rgba(255,68,68,0.3), transparent)' }}/>
         </div>
@@ -525,7 +604,7 @@ export default function Game() {
               <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'"Press Start 2P",monospace', fontSize:9, color:'#fff', textShadow:'1px 1px 0 #000' }}>{p1Hp}/{GAME_CONFIG.maxHp}</span>
             </div>
             <div style={{ fontSize:16, fontWeight:800, color:'#00ff88', fontFamily:'Orbitron,monospace' }}>{p1Balance.toFixed(3)} USDC</div>
-            <div style={{ fontSize:8, color:'#555', fontFamily:'monospace' }}>{MOCK.p1Wallet.slice(0,8)}...{MOCK.p1Wallet.slice(-4)}</div>
+            <div style={{ fontSize:8, color:'#555', fontFamily:'monospace' }}>{STELLAR.agent1Wallet.slice(0,8)}...{STELLAR.agent1Wallet.slice(-4)}</div>
           </div>
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, marginTop:50 }}>
             <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:fightTimer<=10?32:28, color:fightTimer<=10?'#FF4444':fightTimer<=20?'#eab308':'#FFD700', textShadow:fightTimer<=10?'0 0 20px rgba(255,68,68,0.6)':'none', animation:fightTimer<=10?'pulse 0.5s ease infinite alternate':'none' }}>{fightTimer}</div>
@@ -537,7 +616,7 @@ export default function Game() {
               <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'"Press Start 2P",monospace', fontSize:9, color:'#fff', textShadow:'1px 1px 0 #000' }}>{p2Hp}/{GAME_CONFIG.maxHp}</span>
             </div>
             <div style={{ fontSize:16, fontWeight:800, color:'#00ff88', fontFamily:'Orbitron,monospace' }}>{p2Balance.toFixed(3)} USDC</div>
-            <div style={{ fontSize:8, color:'#555', fontFamily:'monospace' }}>{MOCK.p2Wallet.slice(0,8)}...{MOCK.p2Wallet.slice(-4)}</div>
+            <div style={{ fontSize:8, color:'#555', fontFamily:'monospace' }}>{STELLAR.agent2Wallet.slice(0,8)}...{STELLAR.agent2Wallet.slice(-4)}</div>
           </div>
         </div>
         <div style={{ position:'absolute', top:14, left:'50%', transform:'translateX(-50%)', zIndex:10, textAlign:'center', pointerEvents:'none' }}>
@@ -554,13 +633,21 @@ export default function Game() {
             </div>
           ))}
         </div>
-        <div style={{ position:'absolute', right:16, top:100, width:230, maxHeight:'calc(100vh - 180px)', overflowY:'auto', zIndex:10, display:'flex', flexDirection:'column', gap:4, pointerEvents:'none' }} className="scrollbar-hide">
+        <div style={{ position:'absolute', right:16, top:100, width:250, maxHeight:'calc(100vh - 180px)', overflowY:'auto', zIndex:10, display:'flex', flexDirection:'column', gap:4, pointerEvents:'auto' }} className="scrollbar-hide">
           {txLog.map(tx => (
-            <div key={tx.id} style={{ background:'rgba(0,0,0,0.75)', borderLeft:'2px solid rgba(0,255,136,0.4)', padding:'6px 10px', borderRadius:'0 4px 4px 0', fontSize:9, fontFamily:'monospace', color:'#999', animation:'slideIn 0.3s ease' }}>
+            <div key={tx.id} style={{ background:'rgba(0,0,0,0.85)', borderLeft:`2px solid ${tx.type === 'settle' ? '#FFD700' : 'rgba(0,255,136,0.4)'}`, padding:'6px 10px', borderRadius:'0 4px 4px 0', fontSize:9, fontFamily:'monospace', color:'#999', animation:'slideIn 0.3s ease' }}>
               <span style={{color:'#FFD700',fontWeight:'bold'}}>{tx.agent}</span>{' → '}{tx.move}{tx.dmg>0&&<span style={{color:'#ff6666'}}> {tx.dmg}dmg</span>}<br/>
-              <span style={{color:'#00ff88'}}>-{tx.cost.toFixed(3)} USDC</span><span style={{color:'#555'}}> | Fee: 0.00001 XLM</span><br/>
-              <span style={{color:'#444',fontSize:7}}>tx: {tx.hash.slice(0,16)}...</span><br/>
-              <span style={{color:'#335',fontSize:7}}>ledger: {tx.ledger} | x402 verified</span>
+              <span style={{color:'#00ff88'}}>-{tx.cost.toFixed(3)} USDC</span><span style={{color:'#555'}}> | {STELLAR.network}</span><br/>
+              {tx.hash ? (
+                <a href={tx.explorerUrl || `${STELLAR.explorerBase}/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer" style={{color:'#4488ff',fontSize:7,textDecoration:'underline',cursor:'pointer'}}>
+                  tx: {tx.hash.slice(0,20)}... ↗
+                </a>
+              ) : (
+                <span style={{color:'#ff4444',fontSize:7}}>payment pending...</span>
+              )}
+              {tx.reasoning && (
+                <><br/><span style={{color:'#8B5CF6',fontSize:7}}>🧠 {tx.reasoning.length > 80 ? tx.reasoning.slice(0, 80) + '...' : tx.reasoning}</span></>
+              )}
             </div>
           ))}
         </div>
@@ -572,23 +659,31 @@ export default function Game() {
           <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:80, color:'#FF4444', textShadow:'0 0 60px rgba(255,68,68,0.7), 0 0 120px rgba(255,68,68,0.3)', animation:'pulse 0.5s ease infinite alternate' }}>K.O.</div>
           <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:18, color:'#FFD700', marginTop:16 }}>{winner} WINS!</div>
           <div style={{ fontSize:22, fontWeight:900, color:'#00ff88', marginTop:8, fontFamily:'Orbitron,monospace' }}>+{pot.toFixed(3)} USDC</div>
-          <div style={{ fontSize:10, color:'#555', marginTop:4 }}>Pot released from Soroban escrow</div>
+          <div style={{ fontSize:10, color:'#555', marginTop:4 }}>Pot released to winner via Stellar x402</div>
           <div style={{ display:'flex', gap:24, marginTop:24 }}>
             <div style={{ background:'rgba(0,0,0,0.5)', border:'1px solid rgba(255,255,255,0.05)', borderRadius:8, padding:'12px 20px', minWidth:160 }}>
               <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:8, color:FIGHTERS[selectedP1!]?.color, marginBottom:8 }}>{FIGHTERS[selectedP1!]?.name}</div>
               <div style={{ fontSize:9, color:'#888', fontFamily:'monospace' }}>HP: <span style={{color:'#fff'}}>{p1Hp}</span> | DMG dealt: <span style={{color:'#ff6666'}}>{totalP1Dmg}</span></div>
               <div style={{ fontSize:9, color:'#888', fontFamily:'monospace' }}>Spent: <span style={{color:'#00ff88'}}>{totalP1Spent.toFixed(3)} USDC</span></div>
+              <a href={`${STELLAR.explorerBase}/account/${STELLAR.agent1Wallet}`} target="_blank" rel="noopener noreferrer" style={{fontSize:8,color:'#4488ff',fontFamily:'monospace',textDecoration:'underline'}}>{STELLAR.agent1Wallet.slice(0,8)}...{STELLAR.agent1Wallet.slice(-4)} ↗</a>
             </div>
             <div style={{ background:'rgba(0,0,0,0.5)', border:'1px solid rgba(255,255,255,0.05)', borderRadius:8, padding:'12px 20px', minWidth:160 }}>
               <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:8, color:FIGHTERS[selectedP2!]?.color, marginBottom:8 }}>{FIGHTERS[selectedP2!]?.name}</div>
               <div style={{ fontSize:9, color:'#888', fontFamily:'monospace' }}>HP: <span style={{color:'#fff'}}>{p2Hp}</span> | DMG dealt: <span style={{color:'#ff6666'}}>{totalP2Dmg}</span></div>
               <div style={{ fontSize:9, color:'#888', fontFamily:'monospace' }}>Spent: <span style={{color:'#00ff88'}}>{totalP2Spent.toFixed(3)} USDC</span></div>
+              <a href={`${STELLAR.explorerBase}/account/${STELLAR.agent2Wallet}`} target="_blank" rel="noopener noreferrer" style={{fontSize:8,color:'#4488ff',fontFamily:'monospace',textDecoration:'underline'}}>{STELLAR.agent2Wallet.slice(0,8)}...{STELLAR.agent2Wallet.slice(-4)} ↗</a>
             </div>
           </div>
-          <div style={{ background:'rgba(0,0,0,0.4)', border:'1px solid rgba(0,255,136,0.1)', borderRadius:6, padding:'8px 16px', marginTop:16, textAlign:'center' }}>
-            <div style={{ fontSize:7, color:'#00ff88', fontFamily:'monospace', letterSpacing:1 }}>SETTLEMENT TX</div>
-            <div style={{ fontSize:8, color:'#555', fontFamily:'monospace', marginTop:2 }}>tx: {mockTxHash().slice(0,32)}...</div>
-            <div style={{ fontSize:8, color:'#444', fontFamily:'monospace' }}>Escrow release | {MOCK.network} | x402 verified</div>
+          <div style={{ background:'rgba(0,0,0,0.4)', border:'1px solid rgba(0,255,136,0.1)', borderRadius:6, padding:'10px 20px', marginTop:16, textAlign:'center' }}>
+            <div style={{ fontSize:7, color:'#00ff88', fontFamily:'"Press Start 2P",monospace', letterSpacing:1 }}>SETTLEMENT TX</div>
+            {settleTx ? (
+              <a href={settleTx.explorerUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:9,color:'#4488ff',fontFamily:'monospace',textDecoration:'underline',display:'block',marginTop:4}}>
+                {settleTx.hash.slice(0,32)}... ↗ View on Stellar Expert
+              </a>
+            ) : (
+              <div style={{ fontSize:9, color:'#FFD700', fontFamily:'monospace', marginTop:4 }}>Settling on Stellar testnet...</div>
+            )}
+            <div style={{ fontSize:8, color:'#555', fontFamily:'monospace', marginTop:4 }}>Server → Winner | {STELLAR.network} | x402</div>
           </div>
           <div style={{ display:'flex', gap:16, marginTop:24 }}>
             <button onClick={goHome} style={{ fontFamily:'"Press Start 2P",monospace', fontSize:12, padding:'12px 32px', background:'rgba(255,255,255,0.05)', color:'#888', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, cursor:'pointer', letterSpacing:2 }}>HOME</button>
