@@ -1,53 +1,32 @@
 #!/usr/bin/env npx tsx
 /**
- * KO402 CLI Agent
+ * KO402 CLI Agent — Turn-based fighting on Stellar
  * 
- * Run two of these in separate terminals to fight:
- *   Terminal 1: npx tsx scripts/agent.ts --name "Ronin" --fighter samurai --wallet 1
- *   Terminal 2: npx tsx scripts/agent.ts --name "Shadow" --fighter kenji --wallet 2
- * 
- * Each agent:
- *   1. Joins the lobby
- *   2. Deposits 0.1 USDC to the pot (real Stellar tx)
- *   3. Each turn: asks GPT for move → pays USDC → submits move
- *   4. Polls game state for opponent's moves
- *   5. Winner gets pot settlement
+ * Terminal 1: npx tsx scripts/agent.ts --name "Ronin" --fighter samurai --wallet 1
+ * Terminal 2: npx tsx scripts/agent.ts --name "Shadow" --fighter kenji --wallet 2
  */
 
 import 'dotenv/config';
 
-const SERVER = process.env.GAME_SERVER || 'http://localhost:4000';
+const SERVER = process.env.GAME_SERVER || 'https://ko402.vercel.app';
 
-// Parse CLI args
 const args = process.argv.slice(2);
-function getArg(name: string, fallback: string): string {
-  const idx = args.indexOf(`--${name}`);
-  return idx >= 0 && args[idx + 1] ? args[idx + 1] : fallback;
+function getArg(name: string, fb: string): string {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 && args[i + 1] ? args[i + 1] : fb;
 }
 
-const AGENT_NAME = getArg('name', 'Agent-' + Math.floor(Math.random() * 1000));
+const NAME = getArg('name', 'Agent-' + Math.floor(Math.random() * 1000));
 const FIGHTER = getArg('fighter', 'samurai');
-const WALLET_NUM = getArg('wallet', '1'); // 1 or 2
+const WNUM = getArg('wallet', '1');
+const MY_SLOT = WNUM === '2' ? 'p2' : 'p1';
 
-// Get wallet from env based on --wallet flag
-const walletPublic = WALLET_NUM === '2'
+const walletPublic = WNUM === '2'
   ? (process.env.AGENT2_STELLAR_PUBLIC || 'GBYG4FCBBDTCIGPU7IIRMSHO3T7TQSA2KPU5ZRA3XYYFYRBMULN7NJ3D')
   : (process.env.AGENT1_STELLAR_PUBLIC || 'GABCOE5R6P2NIGZ7RN5AHKRBO7AAEMHOMJU3U54TXNAFPIY72ZKNROKF');
 
-const COLORS = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  blue: '\x1b[34m',
-  magenta: '\x1b[35m',
-  cyan: '\x1b[36m',
-};
-
-function log(msg: string) { console.log(`${COLORS.dim}[${new Date().toLocaleTimeString()}]${COLORS.reset} ${msg}`); }
-function logBold(msg: string) { console.log(`\n${COLORS.bold}${msg}${COLORS.reset}`); }
+const C = { r:'\x1b[0m', b:'\x1b[1m', d:'\x1b[2m', red:'\x1b[31m', grn:'\x1b[32m', yel:'\x1b[33m', blu:'\x1b[34m', mag:'\x1b[35m', cyn:'\x1b[36m' };
+function log(m: string) { console.log(`${C.d}[${new Date().toLocaleTimeString()}]${C.r} ${m}`); }
 
 async function api(path: string, method = 'GET', body?: any) {
   const opts: any = { method, headers: { 'Content-Type': 'application/json' } };
@@ -59,58 +38,38 @@ async function api(path: string, method = 'GET', body?: any) {
 async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 async function main() {
-  console.log(`
-${COLORS.yellow}╔══════════════════════════════════════╗
-║       ${COLORS.bold}KO402 — CLI AGENT${COLORS.reset}${COLORS.yellow}              ║
+  console.log(`\n${C.yel}╔══════════════════════════════════════╗
+║       ${C.b}KO402 — CLI AGENT${C.r}${C.yel}              ║
 ║    Pay-Per-Move Fighting on Stellar  ║
-╚══════════════════════════════════════╝${COLORS.reset}
-`);
+╚══════════════════════════════════════╝${C.r}\n`);
 
-  log(`Agent: ${COLORS.bold}${AGENT_NAME}${COLORS.reset}`);
-  log(`Fighter: ${COLORS.cyan}${FIGHTER}${COLORS.reset}`);
-  log(`Wallet: ${COLORS.blue}${walletPublic.slice(0, 8)}...${walletPublic.slice(-4)}${COLORS.reset}`);
-  log(`Server: ${COLORS.dim}${SERVER}${COLORS.reset}`);
-  log(`Wallet slot: ${WALLET_NUM} (uses AGENT${WALLET_NUM}_STELLAR_SECRET on server)`);
+  log(`Agent: ${C.b}${NAME}${C.r} | Fighter: ${C.cyn}${FIGHTER}${C.r} | Slot: ${MY_SLOT}`);
+  log(`Wallet: ${C.blu}${walletPublic.slice(0, 8)}...${walletPublic.slice(-4)}${C.r}`);
+  log(`Server: ${C.d}${SERVER}${C.r}`);
 
   // 1. Join lobby
-  logBold('⏳ Joining arena...');
-  const joinResult = await api('/api/game/lobby', 'POST', {
-    wallet: walletPublic,
-    fighter: FIGHTER,
-    name: AGENT_NAME,
-  });
-
+  log(`${C.yel}⏳ Joining arena...${C.r}`);
+  let joinResult = await api('/api/game/lobby', 'POST', { wallet: walletPublic, fighter: FIGHTER, name: NAME });
   if (joinResult.error) {
-    log(`${COLORS.red}✗ Failed to join: ${joinResult.error}${COLORS.reset}`);
-    // Try resetting and rejoining
-    log('Resetting room...');
+    log('Resetting stale room...');
     await api('/api/game/lobby', 'DELETE');
-    const retry = await api('/api/game/lobby', 'POST', {
-      wallet: walletPublic, fighter: FIGHTER, name: AGENT_NAME,
-    });
-    if (retry.error) {
-      log(`${COLORS.red}✗ Still failed: ${retry.error}${COLORS.reset}`);
-      process.exit(1);
-    }
-    log(`${COLORS.green}✓ Joined as ${retry.slot}${COLORS.reset}`);
-  } else {
-    log(`${COLORS.green}✓ Joined as ${joinResult.slot}${COLORS.reset}`);
+    joinResult = await api('/api/game/lobby', 'POST', { wallet: walletPublic, fighter: FIGHTER, name: NAME });
   }
+  if (joinResult.error) { log(`${C.red}✗ ${joinResult.error}${C.r}`); process.exit(1); }
+  log(`${C.grn}✓ Joined as ${joinResult.slot}${C.r}`);
 
   // 2. Deposit pot
-  logBold('💰 Depositing 0.1 USDC to pot...');
-  const depositResult = await api('/api/game/deposit', 'POST', {
-    agentNum: parseInt(WALLET_NUM),
-  });
-  if (depositResult.success) {
-    log(`${COLORS.green}✓ Deposited! TX: ${depositResult.deposit.hash.slice(0, 16)}...${COLORS.reset}`);
-    log(`  ${COLORS.blue}↗ ${depositResult.deposit.explorerUrl}${COLORS.reset}`);
+  log(`${C.yel}💰 Depositing 0.1 USDC...${C.r}`);
+  const dep = await api('/api/game/deposit', 'POST', { agentNum: parseInt(WNUM) });
+  if (dep.success) {
+    log(`${C.grn}✓ Deposit TX: ${dep.deposit.hash.slice(0, 20)}...${C.r}`);
+    log(`  ${C.blu}↗ ${dep.deposit.explorerUrl}${C.r}`);
   } else {
-    log(`${COLORS.yellow}⚠ Deposit failed: ${depositResult.error || 'unknown'} (continuing anyway)${COLORS.reset}`);
+    log(`${C.yel}⚠ Deposit: ${dep.error || 'failed'}${C.r}`);
   }
 
   // 3. Wait for opponent
-  logBold('⏳ Waiting for opponent...');
+  log(`${C.yel}⏳ Waiting for opponent...${C.r}`);
   let state = await api('/api/game/state');
   while (state.status === 'waiting' || state.status === 'empty') {
     process.stdout.write('.');
@@ -118,125 +77,92 @@ ${COLORS.yellow}╔════════════════════�
     state = await api('/api/game/state');
   }
   console.log('');
+  log(`${C.grn}✓ FIGHT! ${state.p1?.name} vs ${state.p2?.name} | Pot: ${state.pot} USDC${C.r}`);
 
-  if (state.status === 'fighting') {
-    log(`${COLORS.green}✓ FIGHT! ${state.p1?.name} vs ${state.p2?.name}${COLORS.reset}`);
-    log(`  P1: ${state.p1?.fighter} (${state.p1?.wallet?.slice(0, 8)}...)`);
-    log(`  P2: ${state.p2?.fighter} (${state.p2?.wallet?.slice(0, 8)}...)`);
-    log(`  Pot: ${state.pot} USDC`);
-  }
-
-  // 4. Fight loop
-  let lastTurn = state.turn;
-  let myHp = 100;
-  let opponentHp = 100;
-  let myBalance = 1.0;
-  let opponentBalance = 1.0;
-  let lastOpponentMove: string | null = null;
+  // 4. Turn-based fight loop
   let lastMyMove: string | null = null;
+  let lastOppMove: string | null = null;
 
-  while (state.status === 'fighting') {
-    // Wait for turn updates
+  while (true) {
     state = await api('/api/game/state');
-    
-    // Update HP/balance from state
-    const isP1 = state.p1?.wallet === walletPublic;
+    if (state.status === 'ko' || state.status === 'empty') break;
+
+    // Wait for my turn
+    if (state.currentTurn !== MY_SLOT) {
+      await sleep(500);
+      continue;
+    }
+
+    const isP1 = MY_SLOT === 'p1';
     const me = isP1 ? state.p1 : state.p2;
     const opp = isP1 ? state.p2 : state.p1;
-    myHp = me?.hp || 0;
-    opponentHp = opp?.hp || 0;
-    myBalance = me?.balance || 0;
-    opponentBalance = opp?.balance || 0;
 
-    if (state.status === 'ko') break;
-
-    // Ask GPT for move
-    log(`${COLORS.magenta}🧠 GPT thinking... (HP: ${myHp}/${opponentHp}, Balance: ${myBalance.toFixed(3)}/${opponentBalance.toFixed(3)})${COLORS.reset}`);
-    const thinkResult = await api('/api/game/think', 'POST', {
-      myHp, opponentHp, myBalance, opponentBalance,
-      myChar: FIGHTER,
-      opponentChar: (isP1 ? state.p2?.fighter : state.p1?.fighter) || 'unknown',
-      roundNum: state.turn,
-      timeLeft: 60 - state.turn * 2,
-      lastOpponentMove,
-      myLastMove: lastMyMove,
-    });
-
-    const move = thinkResult.move || 'light';
-    const reasoning = thinkResult.reasoning || '';
-    log(`${COLORS.magenta}🧠 Chose: ${COLORS.bold}${move.toUpperCase()}${COLORS.reset} — ${COLORS.dim}${reasoning}${COLORS.reset}`);
-
-    // Pay for move — real Stellar tx
-    const costs: Record<string, string> = { light: '0.01', heavy: '0.05', block: '0.005' };
-    log(`${COLORS.green}💸 Paying ${costs[move]} USDC on Stellar...${COLORS.reset}`);
-    const moveTx = await api('/api/game/move', 'POST', {
-      agentNum: parseInt(WALLET_NUM),
-      moveType: move,
-    });
-
-    let txHash = '';
-    let explorerUrl = '';
-    if (moveTx.success) {
-      txHash = moveTx.tx.hash;
-      explorerUrl = moveTx.tx.explorerUrl;
-      log(`${COLORS.green}✓ Paid! TX: ${txHash.slice(0, 20)}...${COLORS.reset}`);
-      log(`  ${COLORS.blue}↗ ${explorerUrl}${COLORS.reset}`);
-    } else {
-      log(`${COLORS.red}✗ Payment failed: ${moveTx.error || moveTx.details || 'unknown'}${COLORS.reset}`);
-    }
-
-    // Submit move to game state
-    const playResult = await api('/api/game/play', 'POST', {
-      wallet: walletPublic,
-      move,
-      txHash,
-      explorerUrl,
-      reasoning,
-    });
-
-    if (playResult.success) {
-      const dmgEntry = state.txLog?.slice(-1)[0];
-      log(`${COLORS.yellow}⚔️  ${AGENT_NAME} → ${move.toUpperCase()} | Opponent HP: ${playResult.p2?.hp || playResult.p1?.hp}${COLORS.reset}`);
-    }
-
-    lastMyMove = move;
-
-    // Check for opponent's last move
-    state = await api('/api/game/state');
-    const oppMoves = state.txLog?.filter((t: any) => t.agent !== AGENT_NAME);
-    if (oppMoves?.length > 0) {
-      const lastOpp = oppMoves[oppMoves.length - 1];
-      lastOpponentMove = lastOpp.move;
-      if (lastOpp.agent !== AGENT_NAME) {
-        log(`${COLORS.red}🗡️  ${lastOpp.agent} → ${lastOpp.move.toUpperCase()} | ${lastOpp.dmg} dmg${COLORS.reset}`);
+    // Check opponent's last move
+    const oppMoves = (state.txLog || []).filter((t: any) => t.agent !== NAME);
+    if (oppMoves.length > 0) {
+      const last = oppMoves[oppMoves.length - 1];
+      if (last.move !== lastOppMove || oppMoves.length > 1) {
+        log(`${C.red}🗡️  ${last.agent} → ${last.move.toUpperCase()}${last.dmg > 0 ? ` ${last.dmg}dmg` : ''}${C.r}`);
+        lastOppMove = last.move;
       }
     }
 
-    if (state.status === 'ko') break;
+    // Think via GPT
+    log(`${C.mag}🧠 Thinking... (HP: ${me?.hp}/${opp?.hp}, Bal: ${me?.balance?.toFixed(3)}/${opp?.balance?.toFixed(3)})${C.r}`);
+    const think = await api('/api/game/think', 'POST', {
+      myHp: me?.hp || 0, opponentHp: opp?.hp || 0,
+      myBalance: me?.balance || 0, opponentBalance: opp?.balance || 0,
+      myChar: FIGHTER, opponentChar: opp?.fighter || 'unknown',
+      roundNum: state.turn, timeLeft: 60 - state.turn * 2,
+      lastOpponentMove: lastOppMove, myLastMove: lastMyMove,
+    });
 
-    // Brief pause before next turn
-    await sleep(800);
+    const move = think.move || 'light';
+    log(`${C.mag}🧠 Chose: ${C.b}${move.toUpperCase()}${C.r} ${C.d}— ${think.reasoning || ''}${C.r}`);
+
+    // Pay on Stellar
+    const costs: Record<string, string> = { light: '0.01', heavy: '0.05', block: '0.005' };
+    log(`${C.grn}💸 Paying ${costs[move]} USDC...${C.r}`);
+    const moveTx = await api('/api/game/move', 'POST', { agentNum: parseInt(WNUM), moveType: move });
+    
+    let txHash = '', explorerUrl = '';
+    if (moveTx.success) {
+      txHash = moveTx.tx.hash;
+      explorerUrl = moveTx.tx.explorerUrl;
+      log(`${C.grn}✓ TX: ${txHash.slice(0, 24)}...${C.r}`);
+      log(`  ${C.blu}↗ ${explorerUrl}${C.r}`);
+    } else {
+      log(`${C.red}✗ Payment: ${moveTx.error || 'failed'}${C.r}`);
+    }
+
+    // Submit move to game state
+    const play = await api('/api/game/play', 'POST', { wallet: walletPublic, move, txHash, explorerUrl, reasoning: think.reasoning });
+    
+    if (play.success) {
+      const myState = isP1 ? play.p1 : play.p2;
+      const oppState = isP1 ? play.p2 : play.p1;
+      log(`${C.yel}⚔️  ${NAME} → ${move.toUpperCase()} | Opp HP: ${oppState?.hp}${C.r}`);
+    } else {
+      log(`${C.red}✗ Submit: ${play.error}${C.r}`);
+    }
+
+    lastMyMove = move;
+    await sleep(300);
   }
 
   // 5. Game over
   state = await api('/api/game/state');
-  console.log('');
-  logBold(`${'═'.repeat(40)}`);
-
-  if (state.winner === AGENT_NAME) {
-    logBold(`${COLORS.green}🏆 ${AGENT_NAME} WINS! +${state.pot} USDC${COLORS.reset}`);
+  console.log(`\n${C.b}${'═'.repeat(40)}${C.r}`);
+  if (state.winner === NAME) {
+    console.log(`${C.grn}${C.b}🏆 ${NAME} WINS! +${state.pot} USDC${C.r}`);
+  } else if (state.winner) {
+    console.log(`${C.red}${C.b}💀 ${NAME} LOST. Winner: ${state.winner}${C.r}`);
   } else {
-    logBold(`${COLORS.red}💀 ${AGENT_NAME} LOST. Winner: ${state.winner}${COLORS.reset}`);
+    console.log(`${C.yel}Game ended. Status: ${state.status}${C.r}`);
   }
-
-  log(`Final HP — ${state.p1?.name}: ${state.p1?.hp} | ${state.p2?.name}: ${state.p2?.hp}`);
-  log(`Total moves: ${state.txLog?.length || 0}`);
-  log(`Onchain TXs: ${state.txLog?.filter((t: any) => t.hash).length || 0}`);
-
-  logBold(`${'═'.repeat(40)}`);
+  log(`Final: ${state.p1?.name} HP:${state.p1?.hp} | ${state.p2?.name} HP:${state.p2?.hp}`);
+  log(`Moves: ${state.txLog?.length || 0} | Onchain: ${state.txLog?.filter((t: any) => t.hash).length || 0}`);
+  console.log(`${C.b}${'═'.repeat(40)}${C.r}\n`);
 }
 
-main().catch(err => {
-  console.error(`${COLORS.red}Fatal: ${err.message}${COLORS.reset}`);
-  process.exit(1);
-});
+main().catch(e => { console.error(`${C.red}Fatal: ${e.message}${C.r}`); process.exit(1); });
