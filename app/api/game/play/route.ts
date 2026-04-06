@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'move must be light, heavy, or block' }, { status: 400 });
     }
 
-    const result = submitMove(wallet, move, txHash || '', explorerUrl || '', reasoning);
+    const result = await submitMove(wallet, move, txHash || '', explorerUrl || '', reasoning);
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 400 });
