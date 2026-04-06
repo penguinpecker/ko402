@@ -77,6 +77,47 @@ export default function Game() {
   const fightTimerRef = useRef(60);
   const [settleTx, setSettleTx] = useState<{ hash: string; explorerUrl: string } | null>(null);
 
+  // Spectate mode — polls server state for live CLI agent fights
+  const spectateRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [spectateData, setSpectateData] = useState<any>(null);
+
+  const goSpectate = useCallback(() => {
+    gameStateRef.current = 'SPECTATE';
+    setGameState('SPECTATE');
+    // Poll server state every 600ms
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/game/state');
+        const data = await res.json();
+        setSpectateData(data);
+        // Auto-set fighters for canvas rendering if fighting
+        if (data.status === 'fighting' || data.status === 'ko') {
+          if (data.p1?.fighter && !selectedP1) setSelectedP1(data.p1.fighter);
+          if (data.p2?.fighter && !selectedP2) setSelectedP2(data.p2.fighter);
+          const p1 = p1Ref.current, p2 = p2Ref.current;
+          if (data.p1?.fighter) { p1.char = data.p1.fighter; p1.facing = 1; p1.anim = data.status === 'ko' && data.winner !== data.p1?.name ? 'death' : 'idle'; }
+          if (data.p2?.fighter) { p2.char = data.p2.fighter; p2.facing = -1; p2.anim = data.status === 'ko' && data.winner !== data.p2?.name ? 'death' : 'idle'; }
+          // Animate attack based on latest tx
+          if (data.txLog?.length > 0) {
+            const last = data.txLog[data.txLog.length - 1];
+            if (Date.now() - last.timestamp < 800) {
+              if (last.agent === data.p1?.name && last.move !== 'block') { p1.anim = 'attack1'; p1.frame = 0; }
+              if (last.agent === data.p2?.name && last.move !== 'block') { p2.anim = 'attack1'; p2.frame = 0; }
+            }
+          }
+        }
+      } catch { /* ignore poll errors */ }
+    };
+    poll();
+    spectateRef.current = setInterval(poll, 600);
+  }, [selectedP1, selectedP2]);
+
+  const stopSpectate = useCallback(() => {
+    if (spectateRef.current) clearInterval(spectateRef.current);
+    spectateRef.current = null;
+    setSpectateData(null);
+  }, []);
+
   useEffect(() => { loadAllSprites().then(() => setSpritesLoaded(true)); }, []);
   const startMusic = useCallback(() => { if(musicStarted)return; const a=new Audio('/audio/fight-music.wav'); a.loop=true; a.volume=0.3; a.play().catch(()=>{}); audioRef.current=a; setMusicStarted(true); }, [musicStarted]);
 
@@ -92,7 +133,7 @@ export default function Game() {
       if(shakeRef.current>0){ctx.save();ctx.translate((Math.random()-0.5)*shakeRef.current*2,(Math.random()-0.5)*shakeRef.current*2);shakeRef.current-=0.5;}
       drawBackground(ctx,canvas.width,canvas.height);
       const gs=gameStateRef.current;
-      if(gs==='VS'||gs==='FIGHT_INTRO'||gs==='FIGHT'||gs==='KO'){drawFighter(ctx,p1Ref.current,canvas.width,canvas.height,1);drawFighter(ctx,p2Ref.current,canvas.width,canvas.height,1);const he=hitEffectRef.current;if(he.timer>0){drawHitEffect(ctx,he.x,he.y,he.timer);he.timer-=0.5;}}
+      if(gs==='VS'||gs==='FIGHT_INTRO'||gs==='FIGHT'||gs==='KO'||gs==='SPECTATE'){drawFighter(ctx,p1Ref.current,canvas.width,canvas.height,1);drawFighter(ctx,p2Ref.current,canvas.width,canvas.height,1);const he=hitEffectRef.current;if(he.timer>0){drawHitEffect(ctx,he.x,he.y,he.timer);he.timer-=0.5;}}
       if(shakeRef.current>0) ctx.restore();
       animRef.current=requestAnimationFrame(render);
     }
@@ -274,7 +315,7 @@ export default function Game() {
         });
       }},100);},[selectedP1,selectedP2,runTurn,startMusic,initFighters,endByTimeout]);
 
-  const goHome=useCallback(()=>{gameStateRef.current='HOME';setGameState('HOME');setSelectedP1(null);setSelectedP2(null);setWinner('');p1Ref.current=createPlayer(1);p2Ref.current=createPlayer(-1);if(timerRef.current)clearInterval(timerRef.current);},[]);
+  const goHome=useCallback(()=>{stopSpectate();gameStateRef.current='HOME';setGameState('HOME');setSelectedP1(null);setSelectedP2(null);setWinner('');p1Ref.current=createPlayer(1);p2Ref.current=createPlayer(-1);if(timerRef.current)clearInterval(timerRef.current);},[stopSpectate]);
   const goSelect=useCallback(()=>{gameStateRef.current='SELECT';setGameState('SELECT');},[]);
 
   // Animated fighter preview for home page
@@ -549,13 +590,20 @@ export default function Game() {
 
             {/* CTA */}
             <div style={{ textAlign:'center' }}>
-              <button onClick={goSelect} style={{
-                fontFamily:'"Press Start 2P",monospace', fontSize:18, padding:'18px 56px',
-                background:'linear-gradient(135deg,#FFD700,#FF8C00)', color:'#000',
-                border:'none', borderRadius:8, cursor:'pointer', letterSpacing:4,
-                boxShadow:'0 0 50px rgba(255,215,0,0.3)',
-              }}>ENTER ARENA</button>
-              <p style={{ fontSize:9, color:'#333', marginTop:12, fontFamily:'monospace' }}>or build your agent and call the API directly</p>
+              <div style={{ display:'flex', gap:16, justifyContent:'center' }}>
+                <button onClick={goSelect} style={{
+                  fontFamily:'"Press Start 2P",monospace', fontSize:18, padding:'18px 56px',
+                  background:'linear-gradient(135deg,#FFD700,#FF8C00)', color:'#000',
+                  border:'none', borderRadius:8, cursor:'pointer', letterSpacing:4,
+                  boxShadow:'0 0 50px rgba(255,215,0,0.3)',
+                }}>ENTER ARENA</button>
+                <button onClick={goSpectate} style={{
+                  fontFamily:'"Press Start 2P",monospace', fontSize:14, padding:'18px 36px',
+                  background:'rgba(0,255,136,0.08)', color:'#00ff88',
+                  border:'1px solid rgba(0,255,136,0.3)', borderRadius:8, cursor:'pointer', letterSpacing:3,
+                }}>WATCH LIVE</button>
+              </div>
+              <p style={{ fontSize:9, color:'#333', marginTop:12, fontFamily:'monospace' }}>WATCH LIVE spectates CLI agent fights in real-time</p>
             </div>
           </div>
         </div>
@@ -725,6 +773,94 @@ export default function Game() {
         </div>
       )}
 
+      {/* ============ SPECTATE MODE ============ */}
+      {gameState === 'SPECTATE' && spritesLoaded && (
+        <>
+          {/* Top bar */}
+          <div style={{ position:'absolute', top:0, left:0, right:0, zIndex:45, background:'rgba(0,0,0,0.85)', borderBottom:'1px solid rgba(0,255,136,0.2)', padding:'10px 24px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+              <button onClick={()=>{stopSpectate();goHome();}} style={{ fontFamily:'"Press Start 2P",monospace', fontSize:8, color:'#666', background:'none', border:'1px solid rgba(255,255,255,0.08)', borderRadius:4, padding:'4px 10px', cursor:'pointer' }}>← BACK</button>
+              <span style={{ fontFamily:'"Press Start 2P",monospace', fontSize:10, color:'#00ff88' }}>SPECTATE MODE</span>
+              <div style={{ width:6, height:6, borderRadius:'50%', background: spectateData?.status === 'fighting' ? '#ff4444' : spectateData?.status === 'waiting' ? '#FFD700' : '#00ff88', boxShadow: `0 0 8px ${spectateData?.status === 'fighting' ? '#ff4444' : '#FFD700'}`, animation: spectateData?.status === 'fighting' ? 'pulse 1s ease infinite' : 'none' }} />
+              <span style={{ fontSize:8, color:'#888', fontFamily:'monospace' }}>{spectateData?.status?.toUpperCase() || 'CONNECTING...'}</span>
+            </div>
+            <div style={{ fontSize:8, color:'#555', fontFamily:'monospace' }}>Polling /api/game/state</div>
+          </div>
+
+          {/* Waiting screen */}
+          {(!spectateData || spectateData.status === 'empty' || spectateData.status === 'waiting') && (
+            <div style={{ position:'absolute', inset:0, zIndex:40, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'rgba(5,5,15,0.96)' }}>
+              <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:20, color:'#FFD700', marginBottom:16 }}>WAITING FOR AGENTS</div>
+              <div style={{ fontSize:12, color:'#666', fontFamily:'Orbitron,monospace', marginBottom:24 }}>
+                {spectateData?.p1 ? `${spectateData.p1.name} joined as ${spectateData.p1.fighter}` : 'No agents yet'}
+              </div>
+              <div style={{ fontSize:11, color:'#555', fontFamily:'monospace', maxWidth:500, textAlign:'center', lineHeight:1.8 }}>
+                Run in two terminals:<br/>
+                <span style={{color:'#00ff88'}}>npx tsx scripts/agent.ts --name &quot;Ronin&quot; --fighter samurai --wallet 1</span><br/>
+                <span style={{color:'#FF4444'}}>npx tsx scripts/agent.ts --name &quot;Shadow&quot; --fighter kenji --wallet 2</span>
+              </div>
+              <div style={{ marginTop:24, width:40, height:40, border:'3px solid rgba(255,215,0,0.3)', borderTop:'3px solid #FFD700', borderRadius:'50%', animation:'spin 1s linear infinite' }} />
+            </div>
+          )}
+
+          {/* Live fight HUD */}
+          {spectateData && (spectateData.status === 'fighting' || spectateData.status === 'ko') && (
+            <>
+              {/* HP Bars */}
+              <div style={{ position:'absolute', top:50, left:0, right:0, zIndex:44, display:'flex', justifyContent:'space-between', padding:'0 24px', pointerEvents:'none' }}>
+                <div style={{ width:'35%' }}>
+                  <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:10, color:FIGHTERS[spectateData.p1?.fighter]?.color || '#FFD700', marginBottom:4 }}>{spectateData.p1?.name} <span style={{color:'#888',fontSize:8}}>(AI)</span></div>
+                  <div style={{ width:'100%', height:14, background:'rgba(0,0,0,0.6)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:2, overflow:'hidden' }}>
+                    <div style={{ height:'100%', width:`${spectateData.p1?.hp || 0}%`, background: (spectateData.p1?.hp || 0) > 50 ? '#22c55e' : (spectateData.p1?.hp || 0) > 25 ? '#eab308' : '#ef4444', transition:'width 0.3s' }} />
+                  </div>
+                  <div style={{ fontSize:8, color:'#00ff88', fontFamily:'monospace', marginTop:2 }}>{spectateData.p1?.balance?.toFixed(3)} USDC</div>
+                  <a href={`${STELLAR.explorerBase}/account/${spectateData.p1?.wallet}`} target="_blank" rel="noopener noreferrer" style={{fontSize:7,color:'#4488ff',fontFamily:'monospace',textDecoration:'underline',pointerEvents:'auto'}}>{spectateData.p1?.wallet?.slice(0,8)}... ↗</a>
+                </div>
+                <div style={{ textAlign:'center' }}>
+                  <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:8, color:'rgba(255,215,0,0.5)' }}>PRIZE POT</div>
+                  <div style={{ fontSize:20, fontWeight:900, color:'#FFD700', fontFamily:'Orbitron,monospace' }}>{spectateData.pot?.toFixed(3)} USDC</div>
+                  <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:22, color: spectateData.status === 'ko' ? '#FF4444' : '#FFD700' }}>
+                    {spectateData.status === 'ko' ? 'K.O.' : `R${spectateData.turn || 0}`}
+                  </div>
+                </div>
+                <div style={{ width:'35%', textAlign:'right' }}>
+                  <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:10, color:FIGHTERS[spectateData.p2?.fighter]?.color || '#FF4444', marginBottom:4 }}><span style={{color:'#888',fontSize:8}}>(AI)</span> {spectateData.p2?.name}</div>
+                  <div style={{ width:'100%', height:14, background:'rgba(0,0,0,0.6)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:2, overflow:'hidden' }}>
+                    <div style={{ height:'100%', width:`${spectateData.p2?.hp || 0}%`, background: (spectateData.p2?.hp || 0) > 50 ? '#22c55e' : (spectateData.p2?.hp || 0) > 25 ? '#eab308' : '#ef4444', transition:'width 0.3s', marginLeft:'auto' }} />
+                  </div>
+                  <div style={{ fontSize:8, color:'#00ff88', fontFamily:'monospace', marginTop:2 }}>{spectateData.p2?.balance?.toFixed(3)} USDC</div>
+                  <a href={`${STELLAR.explorerBase}/account/${spectateData.p2?.wallet}`} target="_blank" rel="noopener noreferrer" style={{fontSize:7,color:'#4488ff',fontFamily:'monospace',textDecoration:'underline',pointerEvents:'auto'}}>{spectateData.p2?.wallet?.slice(0,8)}... ↗</a>
+                </div>
+              </div>
+
+              {/* TX Feed */}
+              <div style={{ position:'absolute', right:16, top:140, width:260, maxHeight:'calc(100vh - 200px)', overflowY:'auto', zIndex:44, display:'flex', flexDirection:'column', gap:4 }} className="scrollbar-hide">
+                {(spectateData.txLog || []).slice().reverse().map((tx: any, i: number) => (
+                  <div key={i} style={{ background:'rgba(0,0,0,0.85)', borderLeft:`2px solid ${tx.move === 'block' ? '#4488ff' : tx.dmg > 20 ? '#FF4444' : 'rgba(0,255,136,0.4)'}`, padding:'5px 8px', borderRadius:'0 4px 4px 0', fontSize:8, fontFamily:'monospace', color:'#999', animation:'slideIn 0.3s ease' }}>
+                    <span style={{color:'#FFD700',fontWeight:'bold'}}>{tx.agent}</span>{' → '}<span style={{color:'#ccc'}}>{tx.move?.toUpperCase()}</span>{tx.dmg > 0 && <span style={{color:'#ff6666'}}> {tx.dmg}dmg</span>}<br/>
+                    <span style={{color:'#00ff88'}}>-{tx.cost?.toFixed(3)} USDC</span>
+                    {tx.hash ? (
+                      <>{' '}<a href={tx.explorerUrl || `${STELLAR.explorerBase}/tx/${tx.hash}`} target="_blank" rel="noopener noreferrer" style={{color:'#4488ff',fontSize:7,textDecoration:'underline'}}>tx ↗</a></>
+                    ) : null}
+                    {tx.reasoning && <><br/><span style={{color:'#8B5CF6',fontSize:7}}>🧠 {tx.reasoning.slice(0,60)}</span></>}
+                  </div>
+                ))}
+              </div>
+
+              {/* KO overlay */}
+              {spectateData.status === 'ko' && (
+                <div style={{ position:'absolute', inset:0, zIndex:46, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.7)' }}>
+                  <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:64, color:'#FF4444', textShadow:'0 0 60px rgba(255,68,68,0.7)' }}>K.O.</div>
+                  <div style={{ fontFamily:'"Press Start 2P",monospace', fontSize:18, color:'#FFD700', marginTop:12 }}>{spectateData.winner} WINS!</div>
+                  <div style={{ fontSize:22, fontWeight:900, color:'#00ff88', marginTop:8, fontFamily:'Orbitron,monospace' }}>+{spectateData.pot?.toFixed(3)} USDC</div>
+                  <button onClick={()=>{stopSpectate();goHome();}} style={{ marginTop:24, fontFamily:'"Press Start 2P",monospace', fontSize:12, padding:'12px 32px', background:'linear-gradient(135deg,#FFD700,#FF8C00)', color:'#000', border:'none', borderRadius:6, cursor:'pointer' }}>HOME</button>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
+
       <style>{`
         @keyframes slideIn { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
         @keyframes pulse { from{transform:scale(1)} to{transform:scale(1.04)} }
@@ -732,6 +868,7 @@ export default function Game() {
         @keyframes vsSlideRight { from{opacity:0;transform:translateX(80px)} to{opacity:1;transform:translateX(0)} }
         @keyframes fightSlam { from{transform:scale(3);opacity:0} to{transform:scale(1);opacity:1} }
         @keyframes fadeInScale { from{transform:scale(0.5);opacity:0} to{transform:scale(1);opacity:1} }
+        @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
         button:hover { filter: brightness(1.1); }
         .scrollbar-hide::-webkit-scrollbar { display:none; }
         .scrollbar-hide { -ms-overflow-style:none; scrollbar-width:none; }

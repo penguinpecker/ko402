@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "setup": "tsx scripts/setup-accounts.ts",
-    "setup:check": "tsx scripts/setup-accounts.ts"
+    "setup:check": "tsx scripts/setup-accounts.ts",
+    "agent": "tsx scripts/agent.ts",
+    "agent:1": "tsx scripts/agent.ts --name Ronin --fighter samurai --wallet 1",
+    "agent:2": "tsx scripts/agent.ts --name Shadow --fighter kenji --wallet 2",
+    "reset": "curl -X DELETE http://localhost:4000/api/game/lobby"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^15.0.1",
