@@ -131,3 +131,35 @@ export async function apiFetchBalances(): Promise<{
     return null;
   }
 }
+
+/**
+ * Deposit pot entry fee — real Stellar tx.
+ * Agent pays 0.1 USDC to server escrow wallet.
+ */
+export async function apiDeposit(agentNum: 1 | 2): Promise<{
+  success: boolean;
+  hash: string;
+  ledger: number;
+  explorerUrl: string;
+  from: string;
+  error?: string;
+}> {
+  const res = await fetch('/api/game/deposit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agentNum }),
+  });
+  const data = await res.json();
+
+  if (!res.ok || !data.success) {
+    return { success: false, hash: '', ledger: 0, explorerUrl: '', from: '', error: data.error };
+  }
+
+  return {
+    success: true,
+    hash: data.deposit.hash,
+    ledger: data.deposit.ledger,
+    explorerUrl: data.deposit.explorerUrl,
+    from: data.deposit.from,
+  };
+}

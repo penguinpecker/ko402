@@ -111,7 +111,7 @@ export const GAME_CONFIG = {
   p2StartXPercent: 0.68,
 };
 
-export type GameState = 'SELECT' | 'FIGHT' | 'KO';
+export type GameState = 'HOME' | 'SELECT' | 'VS' | 'FIGHT_INTRO' | 'FIGHT' | 'KO';
 
 export interface PlayerState {
   char: string | null; hp: number; maxHp: number; balance: number;
@@ -120,7 +120,17 @@ export interface PlayerState {
 }
 
 export interface TxEntry {
-  id: string; agent: string; move: string; cost: number; dmg: number; hash: string; timestamp: number;
+  id: string;
+  agent: string;
+  move: string;
+  cost: number;
+  dmg: number;
+  hash: string;
+  ledger: number;
+  timestamp: number;
+  explorerUrl: string;
+  reasoning?: string;
+  type?: 'move' | 'deposit' | 'settle';
 }
 
 export function createPlayer(facing: 1 | -1): PlayerState {
