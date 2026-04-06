@@ -43,7 +43,7 @@ function NetworkBadge() {
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
-  const gameStateRef = useRef<GameState>('HOME');
+  const gameStateRef = useRef('HOME' as GameState);
   const p1Ref = useRef<PlayerState>(createPlayer(1));
   const p2Ref = useRef<PlayerState>(createPlayer(-1));
   const shakeRef = useRef(0);
