@@ -52,7 +52,7 @@ export default function Game() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [gameState, setGameState] = useState<GameState>('HOME');
+  const [gameState, setGameState] = useState('HOME' as GameState);
   const [spritesLoaded, setSpritesLoaded] = useState(false);
   const [selectedP1, setSelectedP1] = useState<string | null>(null);
   const [selectedP2, setSelectedP2] = useState<string | null>(null);
